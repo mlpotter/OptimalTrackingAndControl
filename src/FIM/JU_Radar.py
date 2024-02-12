@@ -1,8 +1,8 @@
 
-
 from jax import config
 
 config.update("jax_enable_x64", True)
+
 import jax
 import jax.numpy as jnp
 from jax import jit
@@ -27,9 +27,10 @@ def FIM_radareqn_target_logdet(ps,qs,J,
                          A=A,Q=Q,
                          Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
 
-    sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(FIM)+jnp.eye(FIM.shape[0])*1e-4)
-
-    return -logdet
+    # sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(FIM)+jnp.eye(FIM.shape[0])*1e-5)
+    # logdet = -logdet
+    sign,logdet = jnp.linalg.slogdet(FIM)
+    return logdet
 
 @jit
 def JU_FIM_D_Radar(ps,q,J,A,Q,Pt,Gt,Gr,L,lam,rcs,s):
@@ -59,7 +60,8 @@ def JU_FIM_D_Radar(ps,q,J,A,Q,Pt,Gt,Gr,L,lam,rcs,s):
     # d = jnp.concatenate((d,zeros),-1)
 
     # dd^T / ||d||^4 * rho * rho/(rho+1)
-    outer_product = 4 * jnp.einsum("ijk,ilm->ikm",d,d) / (distances**8 * s**2 + 1e-4 ) * K**2 / (K + s**2 * distances**4 + 1e-4)
+    # jnp.einsum("ijk,ilm->ikm", d, d)
+    outer_product = 4 * (d.transpose(0,2,1)@d) * K**2 / (K*s**2*distances**8 + s**4 * distances**12 + 1e-5)
 
     # D22 = jnp.sum(outer_product,axis=0) + Qinv
 
@@ -77,7 +79,7 @@ def Multi_FIM_Logdet_decorator_MPC(FIM_logdet):
                          A,Q,
                          Pt,Gt,Gr,L,lam,rcs,s,
                          gamma):
-        horizon = U.shape[-1]
+        horizon = U.shape[1]
         M,dm = qs.shape
         N,dn = ps.shape
         # ps = jnp.expand_dims(ps,1)

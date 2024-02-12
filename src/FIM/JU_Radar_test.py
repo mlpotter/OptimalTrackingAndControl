@@ -94,9 +94,6 @@ if __name__ == "__main__":
 
     # ==================== MPPI CONFIGURATION ================================= #
     limits = jnp.array([[max_velocity, max_angle_velocity], [min_velocity, min_angle_velocity]])
-    stds = jnp.array([15, jnp.pi/5])
-    spread = 0.1
-    num_traj = 2000
 
     # ps = place_sensors([-100,100],[-100,100],N)
     key, subkey = jax.random.split(key)
@@ -104,11 +101,10 @@ if __name__ == "__main__":
     ps = jax.random.uniform(key, shape=(N, 2), minval=-100, maxval=100)
     ps_init = deepcopy(ps)
     z_elevation = 10
-    qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20.2,0], #,#,
+    qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
                     [-50.4,30.32,z_elevation,-20,-10,0], #,
-                    [10,10,z_elevation,10,10,0]])
-                    # [20,30,z_elevation,50,50,0],
-                    # [-10,-50,z_elevation,-50,50,0]])
+                    [10,10,z_elevation,10,10,0],
+                    [20,20,z_elevation,5,-5,0]])
 
     M, d = qs.shape;
     N = len(ps);
@@ -174,8 +170,8 @@ if __name__ == "__main__":
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     time_step_sizes = jnp.tile(time_step_size, (N, 1))
 
-    U_upper = (jnp.ones((2, time_steps)) * jnp.array([[max_velocity], [max_angle_velocity]]))
-    U_lower = (jnp.ones((2, time_steps)) * jnp.array([[min_velocity], [min_angle_velocity]]))
+    U_upper = (jnp.ones((time_steps, 2)) * jnp.array([[max_velocity, max_angle_velocity]]))
+    U_lower = (jnp.ones((time_steps, 2)) * jnp.array([[min_velocity, min_angle_velocity]]))
 
     U_lower = jnp.tile(U_lower, jnp.array([N, 1, 1]))
     U_upper = jnp.tile(U_upper, jnp.array([N, 1, 1]))
@@ -194,10 +190,9 @@ if __name__ == "__main__":
 
         m0 = (A @ m0.reshape(-1, 1)).reshape(M, d)
 
-        U_velocity = jax.random.uniform(key, shape=(N, 1, time_steps), minval=min_velocity, maxval=max_velocity)
-        U_angular_velocity = jax.random.uniform(key, shape=(N, 1, time_steps), minval=min_angle_velocity,
-                                                maxval=max_angle_velocity)
-        U = jnp.concatenate((U_velocity, U_angular_velocity), axis=1)
+        U_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=min_velocity, maxval=max_velocity)
+        U_angular_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=min_angle_velocity,maxval=max_angle_velocity)
+        U = jnp.concatenate((U_velocity, U_angular_velocity), axis=-1)
 
         # U = jnp.zeros((N,2,time_steps))
 
@@ -206,17 +201,18 @@ if __name__ == "__main__":
                        Js=Js, paretos=paretos,
                        A=A_single, Q=Q_single,
                        Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,s=s,
-                       gamma=gamma                       ).params
+                       gamma=gamma,
+                       ).params
 
-        _, _, Sensor_Positions, Sensor_Chis = state_multiple_update_parallel(jnp.expand_dims(ps, 1),
+        _, _, Sensor_Positions, Sensor_Chis = state_multiple_update_parallel(ps,
                                                                                             U,
                                                                                             chis, time_step_sizes)
         ps = Sensor_Positions[:,1,:]
-        chis = Sensor_Chis[:,1]
+        chis = Sensor_Chis[:,1,:]
 
         # print(ps.shape,chis.shape,ps.squeeze().shape)
         # ps = ps.squeeze()
-        chis = chis.squeeze()
+        # chis = chis.squeeze()
 
 
         end = time()
@@ -228,6 +224,7 @@ if __name__ == "__main__":
 
         # print([jnp.linalg.slogdet(Ji)[1].item() for Ji in Js])
         J_list.append([jnp.linalg.slogdet(Ji)[1].item() for Ji in Js])
+        print("FIM (higher is better) ",np.sum(J_list[-1]))
 
         save_time = time()
         if (k+1)%frame_skip == 0:

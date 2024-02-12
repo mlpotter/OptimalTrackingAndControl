@@ -53,11 +53,11 @@ from jax import jit
 #
 #     return p,chi,jnp.vstack(ps),jnp.vstack(chis)
 
-@jit
+# @jit
 def state_multiple_update(p,U,chi,time_step_sizes):
     # sensor dynamics for unicycle model
 
-    vs,avs = U[[0],:].T,U[[1],:].T
+    vs,avs = U[:,[0]],U[:,[1]]
 
     chi = chi.reshape(1,1)
     p = p.reshape(1,-1)
@@ -65,7 +65,8 @@ def state_multiple_update(p,U,chi,time_step_sizes):
     chi_next = chi + jnp.cumsum(time_step_sizes * avs,axis=0)
     chis = jnp.vstack((chi,chi_next))
 
-    ps_next = p + jnp.cumsum(jnp.column_stack((jnp.cos(chis[:-1].ravel()),jnp.sin(chis[:-1].ravel()))) * vs * time_step_sizes,axis=0)
+    ps_next = p + jnp.cumsum(jnp.column_stack((jnp.cos(chis[:-1].ravel()),
+                                               jnp.sin(chis[:-1].ravel()))) * vs * time_step_sizes,axis=0)
     ps = jnp.vstack((p,ps_next))
 
     # chis = [jnp.expand_dims(chi,0)] + [None]*len(vs)

@@ -3,31 +3,60 @@ from src.control.Sensor_Dynamics import *
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    test_option = 2
+    test_option = 0
 
     p = jnp.array([[0,0]])
     chi = jnp.array([[0]])
-    time_step_size = 1
+    time_step_size = 0.1
 
     # test to see if input affects output in realistic manner?
     if test_option == 0:
         av_inputs = jnp.array([jnp.pi/2,jnp.pi/2,jnp.pi/2,0])
         v_inputs = jnp.array([1,2,3,4])
+        U = jnp.column_stack((v_inputs,av_inputs))
+
+        ps,chis,positions,ang_velocities = state_multiple_update(p,U,chi,time_step_size)
+
 
         plt.figure()
         plt.plot(p[0, 0], p[1, 0], 'r*')
-
-        for v,av in zip(v_inputs,av_inputs):
-            chi_next = angle_update(chi,av,time_step_size)
-            p_next = position_update(p,v,av,chi,chi_next,time_step_size)
-            plt.plot(p_next[0,0].item(),p_next[0,1].item(),'r*')
-            plt.quiver(p[0,0].item(),p[0,1].item(),p_next[0,0].item(),p_next[0,1].item())
-            p = p_next
-            chi = chi_next
-
-        print(chi_next)
-        print(p_next)
+        plt.plot(positions[:,0],positions[:,1],'r.-')
         plt.show()
+
+        print(positions)
+        print(ang_velocities)
+
+        av_inputs = jnp.array([jnp.pi/2]*25)
+        v_inputs = jnp.array([5]*25)
+        U = jnp.column_stack((v_inputs,av_inputs))
+
+        ps,chis,positions,ang_velocities = state_multiple_update(p,U,chi,time_step_size)
+
+
+        plt.figure()
+        plt.plot(p[0, 0], p[1, 0], 'r*')
+        plt.plot(positions[:,0],positions[:,1],'r.-')
+        plt.axis('equal')
+        plt.show()
+
+        print(positions)
+        print(ang_velocities)
+
+        av_inputs = jnp.array([jnp.pi/2,jnp.pi/2,jnp.pi/2,jnp.pi/2,jnp.pi/2,-jnp.pi/2,-jnp.pi/2,-jnp.pi/2,-jnp.pi/2,-jnp.pi/2])
+        v_inputs = jnp.array([5]*5 + [10]*5)
+        U = jnp.column_stack((v_inputs,av_inputs))
+
+        ps,chis,positions,ang_velocities = state_multiple_update(p,U,chi,time_step_size)
+
+
+        plt.figure()
+        plt.plot(p[0, 0], p[1, 0], 'r*')
+        plt.plot(positions[:,0],positions[:,1],'r.-')
+        plt.axis('equal')
+        plt.show()
+
+        print(positions)
+        print(ang_velocities)
 
     # test if for loop for angles and position work together
     if test_option == 1:
