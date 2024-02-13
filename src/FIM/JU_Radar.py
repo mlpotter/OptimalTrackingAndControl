@@ -17,7 +17,7 @@ from src.control.Sensor_Dynamics import state_multiple_update
 
 
 @jit
-def FIM_radareqn_target_logdet(ps,qs,J,
+def JU_FIM_radareqn_target_logdet(ps,qs,J,
                                A,Q,
                                Pt,Gt,Gr,L,lam,rcs,s):
 
@@ -70,47 +70,111 @@ def JU_FIM_D_Radar(ps,q,J,A,Q,Pt,Gt,Gr,L,lam,rcs,s):
 
     return J
 
-def Multi_FIM_Logdet_decorator_MPC(FIM_logdet):
+
+@jit
+def FIM_radareqn_target_logdet(ps,qs,J,
+                               Pt,Gt,Gr,L,lam,rcs,s):
+
+    # FIM of single target, multiple sensors
+
+    FIM = FIM_D_Radar(ps=ps,q=qs,J=J,
+                         Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
+
+    # sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(FIM)+jnp.eye(FIM.shape[0])*1e-5)
+    # logdet = -logdet
+    sign,logdet = jnp.linalg.slogdet(FIM)
+    return logdet
+
+@jit
+def FIM_D_Radar(ps,q,Pt,Gt,Gr,L,lam,rcs,s):
+    q = q.reshape(1,-1)
+    N,dn= ps.shape
+    _,dm = q.shape
+
+    ps = jnp.concatenate((ps,jnp.zeros((N,1))),-1)
+    q = q[:,:dm//2]
+
+
+    d = (q[jnp.newaxis,:,:] - ps[:,jnp.newaxis,:])
+
+    distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
+
+    K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
+
+
+    # dd^T / ||d||^4 * rho * rho/(rho+1)
+    # jnp.einsum("ijk,ilm->ikm", d, d)
+    outer_product = 4 * (d.transpose(0,2,1)@d) * K**2 / (K*s**2*distances**8 + s**4 * distances**12 + 1e-5)
+
+    J = jnp.sum(outer_product, axis=0)
+
+    return J
+
+def Multi_FIM_Logdet_decorator_MPC(score_fn,method="action"):
 
     # the lower this value, the better!
 
-    @jit
-    def Multi_FIM_Logdet(U,chis,ps,qs,time_step_sizes,Js,paretos,
-                         A,Q,
-                         Pt,Gt,Gr,L,lam,rcs,s,
-                         gamma):
-        horizon = U.shape[1]
-        M,dm = qs.shape
-        N,dn = ps.shape
-        # ps = jnp.expand_dims(ps,1)
+    if method=="action":
+        @jit
+        def Multi_FIM_Logdet(U,chis,ps,qs,time_step_sizes,Js,paretos,
+                             A,Q,
+                             Pt,Gt,Gr,L,lam,rcs,s,
+                             gamma):
+            horizon = U.shape[1]
+            M,dm = qs.shape
+            N,dn = ps.shape
+            # ps = jnp.expand_dims(ps,1)
 
-        ps,chis,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,0))(ps,U,chis,time_step_sizes)
+            ps,chis,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,0))(ps,U,chis,time_step_sizes)
 
-        multi_FIM_obj = 0
+            multi_FIM_obj = 0
 
-        Js = jnp.stack(Js)
+            Js = jnp.stack(Js)
 
-        fim_logdet_parallel = vmap(partial(FIM_logdet,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s),in_axes=(None,0,0))
-        Js_update_parallel = vmap(partial(JU_FIM_D_Radar,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s),in_axes=(None,0,0))
-        # iterate through time step
-        for t in jnp.arange(1,horizon+1):
-            # iterate through each FIM corresponding to a target
-            # for m in range(M):
-            #     Jm = Js[m]
-            multi_FIM_obj += jnp.sum(gamma**(t-1) * paretos * fim_logdet_parallel(ps_trajectory[:,t],qs,Js))
+            fim_logdet_parallel = vmap(partial(score_fn,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s),in_axes=(None,0,0))
+            Js_update_parallel = vmap(partial(JU_FIM_D_Radar,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s),in_axes=(None,0,0))
+            # iterate through time step
+            for t in jnp.arange(1,horizon+1):
+                # iterate through each FIM corresponding to a target
+                # for m in range(M):
+                #     Jm = Js[m]
+                multi_FIM_obj += jnp.sum(gamma**(t-1) * paretos * fim_logdet_parallel(ps_trajectory[:,t],qs,Js))
 
-                                         # paretos[m] * FIM_logdet(ps=ps_trajectory[:,t].squeeze(),qs=qs[[m],:],J=Jm,
-                                         #                                A=A,Q=Q,
-                                         #                                Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
-                #
-                # Js[m] = JU_FIM_D_Radar(ps=ps_trajectory[:,t].squeeze(), q=qs[[m],:], J=Jm,
-                #                        A=A, Q=Q,
-                #                        Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,s=s)
-            Js = Js_update_parallel(ps_trajectory[:,t],qs,Js)
+                                             # paretos[m] * FIM_logdet(ps=ps_trajectory[:,t].squeeze(),qs=qs[[m],:],J=Jm,
+                                             #                                A=A,Q=Q,
+                                             #                                Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
+                    #
+                    # Js[m] = JU_FIM_D_Radar(ps=ps_trajectory[:,t].squeeze(), q=qs[[m],:], J=Jm,
+                    #                        A=A, Q=Q,
+                    #                        Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,s=s)
+                Js = Js_update_parallel(ps_trajectory[:,t],qs,Js)
 
-            qs = (A @ qs.reshape(-1, dm).T).T.reshape(M, dm)
+                qs = (A @ qs.reshape(-1, dm).T).T.reshape(M, dm)
 
-        return -multi_FIM_obj
+            return -multi_FIM_obj
+
+    else:
+        @jit
+        def Multi_FIM_Logdet(U, ps, qs, Js, paretos,
+                             Pt, Gt, Gr, L, lam, rcs, s):
+            horizon = U.shape[1]
+            M, dm = qs.shape
+            N, dn = ps.shape
+            # ps = jnp.expand_dims(ps,1)
+
+            Js = jnp.stack(Js)
+
+            fim_logdet_parallel = vmap(partial(score_fn, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, s=s),
+                                       in_axes=(None, 0, 0))
+            Js_update_parallel = vmap(
+                partial(FIM_D_Radar, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, s=s),
+                in_axes=(None, 0, 0))
+            # iterate through time step
+
+            multi_FIM_obj = jnp.sum(paretos * fim_logdet_parallel(ps, qs, Js))
+
+            return -multi_FIM_obj
+
 
     return Multi_FIM_Logdet
 

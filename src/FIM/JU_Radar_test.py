@@ -162,7 +162,7 @@ if __name__ == "__main__":
                    A=A_single, Q=Q_single,
                    Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(FIM_radareqn_target_logdet)
+    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(JU_FIM_radareqn_target_logdet)
 
     print("Optimization START: ")
     lbfgsb =  ScipyBoundedMinimize(fun=Multi_FIM_Logdet, method="L-BFGS-B",jit=True)
