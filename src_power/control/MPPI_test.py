@@ -23,8 +23,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from src.utils import NoiseParams
-from src.control.MPPI import *
+from src_power.utils import NoiseParams
+from src_power.control.MPPI import *
 
 import os
 

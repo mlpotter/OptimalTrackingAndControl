@@ -9,7 +9,7 @@ from jax import jit
 from functools import partial
 from jax import vmap
 
-from src.control.Sensor_Dynamics import state_multiple_update
+from src_power.control.Sensor_Dynamics import state_multiple_update
 
 from jaxopt import ScipyBoundedMinimize
 import matplotlib.pyplot as plt
