@@ -29,9 +29,9 @@ def JU_FIM_radareqn_target_logdet(ps,qs,J,
 
     # sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(FIM)+jnp.eye(FIM.shape[0])*1e-5)
     # logdet = -logdet
-    sign,logdet = jnp.linalg.slogdet(FIM)
+    sign,logdet = jnp.linalg.slogdet(FIM+1e-8)
     return logdet
-
+#
 @jit
 def JU_FIM_D_Radar(ps,q,J,A,Q,Pt,Gt,Gr,L,lam,rcs,s):
     q = q.reshape(1,-1)
@@ -72,12 +72,12 @@ def JU_FIM_D_Radar(ps,q,J,A,Q,Pt,Gt,Gr,L,lam,rcs,s):
 
 
 @jit
-def FIM_radareqn_target_logdet(ps,qs,J,
+def FIM_radareqn_target_logdet(ps,qs,
                                Pt,Gt,Gr,L,lam,rcs,s):
 
     # FIM of single target, multiple sensors
 
-    FIM = FIM_D_Radar(ps=ps,q=qs,J=J,
+    FIM = FIM_D_Radar(ps=ps,qs=qs,
                          Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
 
     # sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(FIM)+jnp.eye(FIM.shape[0])*1e-5)
@@ -86,16 +86,11 @@ def FIM_radareqn_target_logdet(ps,qs,J,
     return logdet
 
 @jit
-def FIM_D_Radar(ps,q,Pt,Gt,Gr,L,lam,rcs,s):
-    q = q.reshape(1,-1)
+def FIM_D_Radar(ps,qs,Pt,Gt,Gr,L,lam,rcs,s):
     N,dn= ps.shape
-    _,dm = q.shape
+    M,dm = qs.shape
 
-    ps = jnp.concatenate((ps,jnp.zeros((N,1))),-1)
-    q = q[:,:dm//2]
-
-
-    d = (q[jnp.newaxis,:,:] - ps[:,jnp.newaxis,:])
+    d = (qs[jnp.newaxis,:,:] - ps[:,jnp.newaxis,:])
 
     distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
 
@@ -104,10 +99,12 @@ def FIM_D_Radar(ps,q,Pt,Gt,Gr,L,lam,rcs,s):
 
     # dd^T / ||d||^4 * rho * rho/(rho+1)
     # jnp.einsum("ijk,ilm->ikm", d, d)
-    outer_product = 4 * (d.transpose(0,2,1)@d) * K**2 / (K*s**2*distances**8 + s**4 * distances**12 + 1e-5)
+    coef = 2 * jnp.sqrt(K**2 / (K*s**2*distances**8 + s**4 * distances**12))
+    outer_vector = d * coef
+    outer_product = (outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
 
-    J = jnp.sum(outer_product, axis=0)
 
+    J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
     return J
 
 def Multi_FIM_Logdet_decorator_MPC(score_fn,method="action"):
@@ -153,30 +150,57 @@ def Multi_FIM_Logdet_decorator_MPC(score_fn,method="action"):
 
             return -multi_FIM_obj
 
-    else:
+    elif method=="FIM2D":
         @jit
-        def Multi_FIM_Logdet(U, ps, qs, Js, paretos,
+        def Multi_FIM_Logdet(ps, qs,
                              Pt, Gt, Gr, L, lam, rcs, s):
-            horizon = U.shape[1]
+
             M, dm = qs.shape
             N, dn = ps.shape
             # ps = jnp.expand_dims(ps,1)
 
-            Js = jnp.stack(Js)
-
-            fim_logdet_parallel = vmap(partial(score_fn, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, s=s),
-                                       in_axes=(None, 0, 0))
-            Js_update_parallel = vmap(
-                partial(FIM_D_Radar, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, s=s),
-                in_axes=(None, 0, 0))
-            # iterate through time step
-
-            multi_FIM_obj = jnp.sum(paretos * fim_logdet_parallel(ps, qs, Js))
+            multi_FIM_obj = score_fn(ps,qs, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, s=s)
 
             return -multi_FIM_obj
 
 
     return Multi_FIM_Logdet
+
+@partial(jit,static_argnames=['N'])
+def FIM_2D_Visualization(ps,qs,
+                      Pt,Gt,Gr,L,lam,rcs,s,N):
+
+
+    sensor_and_targets = jnp.vstack((ps,qs))
+
+    x_max,y_max = jnp.min(sensor_and_targets,axis=0)-300
+    x_min,y_min = jnp.max(sensor_and_targets,axis=0)+300
+
+    qx,qy = jnp.meshgrid(jnp.linspace(x_min,x_max,N),
+                         jnp.linspace(y_min,y_max,N))
+
+    qs = jnp.column_stack((qx.ravel(),qy.ravel()))
+
+    d = (qs[:,jnp.newaxis,:] - ps[jnp.newaxis,:,:])
+
+    distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
+
+    K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
+
+    coef = 2 * jnp.sqrt(K**2 / (K*s**2*distances**8 + s**4 * distances**12))
+    outer_vector = d * coef
+
+    J = (outer_vector.transpose(0,2,1) @ outer_vector)
+
+
+
+
+    sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(J)+jnp.tile(jnp.eye(J.shape[-1]),(N**2,1,1))*1e-8)
+
+    logdet =  -logdet
+
+    return qx,qy,logdet.reshape(N,N)
+
 
 
 @partial(jit,static_argnames=['N'])

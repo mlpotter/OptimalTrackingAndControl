@@ -8,7 +8,7 @@ from jaxopt import ScipyMinimize
 
 
 
-from src.FIM.JU_Radar import JU_FIM_D_Radar,Multi_FIM_Logdet_decorator_MPC,FIM_radareqn_target_logdet
+from src.FIM.JU_Radar import JU_FIM_D_Radar,Multi_FIM_Logdet_decorator_MPC,JU_FIM_radareqn_target_logdet
 
 import matplotlib
 matplotlib.use('Agg')
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     Js = [jnp.eye(d) for m in range(M)]
 
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(FIM_radareqn_target_logdet)
+    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(JU_FIM_radareqn_target_logdet)
 
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     time_step_sizes = jnp.tile(time_step_size, (N, 1))

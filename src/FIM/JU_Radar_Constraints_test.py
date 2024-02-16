@@ -2,12 +2,11 @@ import jax
 from jax import config
 config.update("jax_enable_x64", True)
 import jax.numpy as jnp
-from jaxopt import ScipyMinimize,ScipyBoundedMinimize
 import numpy as np
 
 import imageio
 import matplotlib
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 # matplotlib.use('TkAgg')
 
 import matplotlib.pyplot as plt
@@ -23,6 +22,10 @@ import glob
 from src.FIM.JU_Radar import *
 from src.utils import NoiseParams
 
+from scipy.optimize import minimize
+from scipy.optimize import NonlinearConstraint
+from scipy.optimize import Bounds
+
 
 config.update("jax_enable_x64", True)
 
@@ -37,20 +40,17 @@ if __name__ == "__main__":
     update_steps = 0
     FIM_choice = "radareqn"
     measurement_choice = "radareqn"
-    method = 'noaction'
+    method = 'FIM2D'
 
     # Save frames as a GIF
-    gif_filename = "radar_optimal_RICE.gif"
-    gif_savepath = os.path.join("..", "..", "images","gifs")
+    pdf_filename = "radar_optimal_RICE.pdf"
+    pdf_savepath = os.path.join("..", "..", "images")
     photo_dump = os.path.join("tmp_images")
     remove_photo_dump = True
     os.makedirs(photo_dump, exist_ok=True)
 
-    frame_skip = 1
-    tail_size = 5
-    plot_size = 15
-    T = .05
-    NT = 300
+
+    Restarts = 25
     N = 5
 
     # ==================== RADAR CONFIGURATION ======================== #
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     L = 1;
 
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 1000
+    R = 100
 
     K = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
     coef = K / (R ** 4)
@@ -84,181 +84,166 @@ if __name__ == "__main__":
     key_args = {"Pt": Pt, "Gt": Gt, "Gr": Gr, "lam": lam, "L": L, "rcs": rcs, "R": 100,"SCNR":SCNR,"CNR":CNR,"s":s}
 
     # ==================== SENSOR CONSTRAINTS ======================== #
-    R_sensors_to_targets = 5.
-    R_sensors_to_sensors = 1.5
+    R_sensors_to_targets = 500.
+    R_sensors_to_sensors = 250
 
 
     key, subkey = jax.random.split(key)
     #
-    ps = jax.random.uniform(key, shape=(N, 2), minval=-100, maxval=100)
-    ps_init = deepcopy(ps)
-    z_elevation = 10
-    qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
-                    [-50.4,30.32,z_elevation,-20,-10,0], #,
-                    [10,10,z_elevation,10,10,0],
-                    [20,20,z_elevation,5,-5,0]])
+    ps = jax.random.uniform(key, shape=(N, 2), minval=-2000, maxval=2000)
+    qs = jnp.array([
+                    [-250,-250.], #,
+                    [250,250]]) #,
+                    # [50,-20]])
 
-    M, d = qs.shape;
-    N = len(ps);
+    M, dm = qs.shape;
+    N ,dn = ps.shape;
 
-    # ======================== Objective Assumptions ====================================== #
-    paretos = jnp.ones((M,)) * 1 / M  # jnp.array([1/3,1/3,1/3])
-    # paretos = jnp.array([1/3,1/3,1/3,0,0])
-
-    assert len(paretos) == M, "Pareto weights not equal to number of targets!"
-    assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
-
-
-    sigmaQ = np.sqrt(10 ** 2);
-
-    print("SigmaQ (state noise)={}".format(sigmaQ))
-
-    # A_single = jnp.array([[1., 0, T, 0],
-    #                       [0, 1., 0, T],
-    #                       [0, 0, 1, 0],
-    #                       [0, 0, 0, 1.]])
-    #
-    # Q_single = jnp.array([
-    #     [(T ** 4) / 4, 0, (T ** 3) / 2, 0],
-    #     [0, (T ** 4) / 4, 0, (T ** 3) / 2],
-    #     [(T ** 3) / 2, 0, (T ** 2), 0],
-    #     [0, (T ** 3) / 2, 0, (T ** 2)]
-    # ]) * sigmaQ ** 2
-
-    A_single = jnp.array([[1., 0, 0, T, 0, 0],
-                   [0, 1., 0, 0, T, 0],
-                   [0, 0, 1, 0, 0, T],
-                   [0, 0, 0, 1, 0, 0],
-                   [0, 0, 0, 0, 1., 0],
-                   [0, 0, 0, 0, 0, 1]])
-
-    Q_single = jnp.array([
-        [(T ** 4) / 4, 0, 0, (T ** 3) / 2, 0, 0],
-        [0, (T ** 4) / 4, 0, 0, (T ** 3) / 2, 0],
-        [0, 0, (T**4)/4, 0, 0, (T**3) / 2],
-        [(T ** 3) / 2, 0, 0, (T ** 2), 0, 0],
-        [0, (T ** 3) / 2, 0, 0, (T ** 2), 0],
-        [0, 0, (T**3) / 2, 0, 0, (T**2)]
-    ]) * sigmaQ ** 2
-
-    A = jnp.kron(jnp.eye(M), A_single);
-    Q = jnp.kron(jnp.eye(M), Q_single);  # + np.eye(M*Q_single.shape[0])*1e-1;
-    G = jnp.eye(N)
-
-    nx = Q.shape[0]
-
-    Js = [jnp.eye(d) for m in range(M)]
-
-    JU_FIM_D_Radar(ps, q=qs[[0],:], J=Js[0],
-                   A=A_single, Q=Q_single,
+    FIM_D_Radar(ps, qs=qs,
                    Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(JU_FIM_radareqn_target_logdet,method=method)
-
-    print("Optimization START: ")
-    lbfgsb =  ScipyBoundedMinimize(fun=Multi_FIM_Logdet, method="L-BFGS-B",jit=True)
-
-    m0 = qs
-
-    J_list = []
-    frames = []
-    frame_names = []
-    state_multiple_update_parallel = vmap(state_multiple_update, (0, 0, 0, 0))
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-    for k in range(NT):
-        start = time()
-        qs_previous = m0
-
-        m0 = (A @ m0.reshape(-1, 1)).reshape(M, d)
-
-        U_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=min_velocity, maxval=max_velocity)
-        U_angular_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=min_angle_velocity,maxval=max_angle_velocity)
-        U = jnp.concatenate((U_velocity, U_angular_velocity), axis=-1)
-
-        # U = jnp.zeros((N,2,time_steps))
-
-        U = lbfgsb.run(U, bounds=bounds, chis=chis, ps=ps, qs=m0,
-                       time_step_sizes=time_step_sizes,
-                       Js=Js, paretos=paretos,
-                       A=A_single, Q=Q_single,
-                       Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,s=s,
-                       gamma=gamma,
-                       ).params
-
-        _, _, Sensor_Positions, Sensor_Chis = state_multiple_update_parallel(ps,
-                                                                                            U,
-                                                                                            chis, time_step_sizes)
-        ps = Sensor_Positions[:,1,:]
-        chis = Sensor_Chis[:,1,:]
-
-        # print(ps.shape,chis.shape,ps.squeeze().shape)
-        # ps = ps.squeeze()
-        # chis = chis.squeeze()
+    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(FIM_radareqn_target_logdet,method=method)
 
 
-        end = time()
-        print(f"Step {k} Optimization Time: ",end-start)
+    constraints = []
+    def distance_constraint_sensors_to_targets(ps_optim):
+        ps_optim = ps_optim.reshape(N,dn)
+        difference = (qs[jnp.newaxis, :,:] - ps_optim[:, jnp.newaxis, :])
+        distance = jnp.sqrt(jnp.sum(difference ** 2, -1))
 
-        # m0  = ps
+        return distance.ravel()
 
-        Js = [JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],s=s) for i in range(len(Js))]
+    def distance_constraint_sensors_to_sensors(ps_optim):
+        ps_optim = ps_optim.reshape(N,dn)
+        idx = np.arange(N)[:,None] < np.arange(N)
+        difference = (ps_optim[jnp.newaxis, :,:] - ps_optim[:, jnp.newaxis, :])
+        distance = jnp.sqrt(jnp.sum(difference ** 2, -1))
 
-        # print([jnp.linalg.slogdet(Ji)[1].item() for Ji in Js])
-        J_list.append([jnp.linalg.slogdet(Ji)[1].item() for Ji in Js])
-        print("FIM (higher is better) ",np.sum(J_list[-1]))
-
-        save_time = time()
-        if (k+1)%frame_skip == 0:
-            plt.minorticks_off()
-
-            axes[0].plot(qs_previous[:,0], qs_previous[:,1], 'g.',label="_nolegend_")
-            axes[0].plot(m0[:,0], m0[:,1], 'go',label="Targets")
-            axes[0].plot(ps_init[:,0], ps_init[:,1], 'md',label="Sensor Init")
-            axes[0].plot(ps[:,0], ps[:,1], 'rx',label="Sensors")
-            axes[0].plot(Sensor_Positions[:,1:,0].T, Sensor_Positions[:,1:,1].T, 'r.-',label="_nolegend_")
-            axes[0].plot([],[],"r.-",label="Sensor Planned Path")
-
-            axes[0].legend(bbox_to_anchor=(0.7, 0.95))
-            axes[0].set_title(f"k={k}")
-
-            qx,qy,logdet_grid = FIM_Visualization(ps=ps, qs=m0,
-                                                  Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s,
-                                                  N=250)
-
-            axes[1].contourf(qx, qy, logdet_grid, levels=20)
-            axes[1].scatter(ps[:, 0], ps[:, 1], s=50, marker="x", color="r")
-            #
-            axes[1].scatter(m0[:, 0], m0[:, 1], s=50, marker="o", color="g")
-            axes[1].set_title("Instant Time Objective Function Map")
-
-            axes[2].plot(jnp.sum(jnp.array(J_list),axis=1))
-            axes[2].set_ylabel("sum of individual target logdet FIM")
-            axes[2].set_xlabel("Time Step")
+        return distance[idx].ravel()
 
 
-            filename = f"frame_{k}.png"
-            plt.tight_layout()
-            plt.savefig(os.path.join(photo_dump, filename))
+    constraints.append(NonlinearConstraint(distance_constraint_sensors_to_targets,R_sensors_to_targets/2,np.inf))
+    constraints.append(NonlinearConstraint(distance_constraint_sensors_to_sensors,R_sensors_to_sensors/2,np.inf))
 
-            frame_names.append(os.path.join(photo_dump, filename))
-            axes[0].cla()
-            axes[1].cla()
-            axes[2].cla()
-        save_time = time() - save_time
-        print("Figure Save Time: ",save_time)
+    Multi_FIM_Logdet_partial = partial(Multi_FIM_Logdet,qs=qs,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
+    objective = lambda ps_optim: Multi_FIM_Logdet_partial(ps_optim.reshape(N,dn))
 
-    plt.figure()
-    plt.plot(jnp.array(J_list))
-    plt.show()
-    print("lol")
+    jac_jax = jax.jit(jax.grad(objective,argnums=0))
+    hess_jax = jax.jit(jax.hessian(objective,argnums=0))
 
+    jac = lambda ps_optim: jac_jax(ps_optim).ravel()
+    hess = lambda ps_optim: hess_jax(ps_optim)
 
-    for frame_name in frame_names:
-        frames.append(imageio.imread(frame_name))
-
-    imageio.mimsave(os.path.join(gif_savepath, gif_filename), frames, duration=0.25)
-    if remove_photo_dump:
-        for filename in glob.glob(os.path.join(photo_dump, "frame_*")):
-            os.remove(filename)
+    f_best = jnp.inf
+    ps_best = 0
+    for k in range(Restarts):
+        print("="*10,f"initialization {k}", "="*10)
+        print("Obj Init",objective(ps))
 
 
+        SLSQP = minimize(fun=objective, x0=ps.ravel(),method="trust-constr",constraints=constraints,options={"maxiter":10000,"disp":True},jac=jac,hess=hess)
+        print(SLSQP)
+        ps_optim = SLSQP.x.reshape(N,dn)
+        # ps = ps_optim
+
+        J = FIM_D_Radar(ps_optim, qs, Pt, Gt, Gr, L, lam, rcs, s)
+        print("Matrix Rank: ",jnp.linalg.matrix_rank(J))
+        if f_best > SLSQP.fun:
+            f_best = SLSQP.fun
+            ps_best = ps_optim
+
+        print("\n")
+
+        key, subkey = jax.random.split(key)
+
+        ps = jax.random.uniform(key, shape=(N, 2), minval=-2000, maxval=2000)
+        print("BEST OBJECTIVE IS: ",f_best)
+
+    # ps_best = jnp.array([[-450,-480],
+    #                      [-450,480],
+    #                      [0,250],
+    #                      [-250,0],
+    #                      [450,480],
+    #                      [0,-0]])
+    # ps_best = jnp.array([[-450,-480],
+    #                      [450,480],
+    #                      [0,250],
+    #                      [-250,0],
+    #                      [0,-0]])
+    best_obj = objective(ps_best)
+    print("Best Objective is: ",best_obj)
+
+
+
+
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    #
+    # for m in range(M):
+    #     axes.add_patch(Circle(qs[m, :2], R_sensors_to_targets, edgecolor="red", fill=False, lw=1, linestyle="--"))
+    axes[0].plot(qs[:,0],qs[:,1],"mo",label="Target")
+    for m in range(M):
+        axes[0].add_patch(
+            Circle(qs[m,:], R_sensors_to_targets / 2, edgecolor="magenta", fill=False, lw=1,
+                   linestyle="--",label="_nolegend_"))
+
+    for n in range(N):
+        axes[0].add_patch(
+            Circle(ps_best[n,:], R_sensors_to_sensors / 2, edgecolor="red", fill=False, lw=1,
+                   linestyle="--",label="_nolegend_"))
+
+    axes[0].axis('equal')
+    axes[0].plot([],[],"r--",label="Radar Boundary")
+    axes[0].plot([],[],"m--",label="Target Boundary")
+    axes[0].plot(ps_best[:,0],ps_best[:,1],"ro",label="Radar")
+    axes[0].plot(ps[:,0],ps[:,1],"rX")
+    axes[0].set_title(f"Best Log |J| = -{np.round(best_obj,5)}")
+    axes[0].legend()
+
+    qx, qy, logdet_grid = FIM_2D_Visualization(ps=ps_best, qs=qs,
+                                            Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, s=s,
+                                            N=2500)
+
+    CS = axes[1].contourf(qx, qy, logdet_grid, levels=15)
+    # pcm = axes[1].pcolor(qx,qy,logdet_grid)
+    axes[1].scatter(ps_best[:, 0], ps_best[:, 1], s=50, marker="o", color="r")
+    #
+    axes[1].scatter(qs[:, 0], qs[:, 1], s=50, marker="o", color="m")
+    axes[1].set_title("log |J|")
+
+    fig.colorbar(CS,ax=axes[1])
+    fig.tight_layout()
+    fig.savefig(os.path.join(pdf_savepath,pdf_filename))
+    fig.show()
+    plt.minorticks_off()
+
+#     sensor_and_targets = jnp.vstack((ps,qs[:,:2]))
+#
+#     x_max,y_max = jnp.min(sensor_and_targets,axis=0)-30
+#     x_min,y_min = jnp.max(sensor_and_targets,axis=0)+30
+#
+#     qx,qy = jnp.meshgrid(jnp.linspace(x_min,x_max,N),
+#                          jnp.linspace(y_min,y_max,N))
+#
+#     qs = jnp.column_stack((qx.ravel(),qy.ravel()))
+#
+#     d = (qs[:,jnp.newaxis,:] - ps[jnp.newaxis,:,:])
+#
+#     distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
+#
+#     K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
+#
+#     constant = jnp.sqrt(4 / (distances**8 * s**2 ) * K**2 / (K + s**2 * distances**4 ))
+#
+#     outer_vector = jnp.expand_dims(d * constant,-1)
+#
+#     # dd^T / ||d||^4 * rho * rho/(rho+1)
+#     outer_product =  outer_vector @ outer_vector.transpose(0,1,3,2)
+#
+#     J = jnp.sum(outer_product, axis=1)
+#
+#     sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(J)+jnp.tile(jnp.eye(J.shape[-1]),(N**2,1,1))*1e-8)
+#
+#     logdet =  -logdet
+#
+#     return qx,qy,logdet.reshape(N,N)
