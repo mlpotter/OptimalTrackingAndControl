@@ -8,7 +8,7 @@ from jaxopt import ScipyMinimize
 
 
 
-from src.FIM.JU_Radar import JU_FIM_D_Radar,Multi_FIM_Logdet_decorator_MPC,JU_FIM_radareqn_target_logdet
+from src_power.FIM.JU_Radar import JU_FIM_D_Radar,Multi_FIM_Logdet_decorator_MPC,JU_FIM_radareqn_target_logdet
 
 import matplotlib
 matplotlib.use('Agg')

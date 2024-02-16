@@ -19,8 +19,8 @@ from copy import deepcopy
 import os
 import glob
 
-from src.FIM.JU_Radar import *
-from src.utils import NoiseParams
+from src_power.FIM.JU_Radar import *
+from src_power.utils import NoiseParams
 
 from scipy.optimize import minimize
 from scipy.optimize import NonlinearConstraint

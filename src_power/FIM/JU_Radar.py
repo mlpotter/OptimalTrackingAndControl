@@ -13,7 +13,7 @@ from functools import partial
 
 from copy import deepcopy
 
-from src.control.Sensor_Dynamics import state_multiple_update
+from src_power.control.Sensor_Dynamics import state_multiple_update
 
 
 @jit

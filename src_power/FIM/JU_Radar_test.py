@@ -20,8 +20,8 @@ from copy import deepcopy
 import os
 import glob
 
-from src.FIM.JU_Radar import *
-from src.utils import NoiseParams
+from src_power.FIM.JU_Radar import *
+from src_power.utils import NoiseParams
 
 
 config.update("jax_enable_x64", True)

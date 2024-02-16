@@ -6,8 +6,8 @@ from jax import vmap
 import functools
 from jax import random
 
-from src.utils import NoiseParams,place_sensors
-from src.tracking.Particle_Filter import *
+from src_power.utils import NoiseParams,place_sensors
+from src_power.tracking.Particle_Filter import *
 
 import numpy as np
 
