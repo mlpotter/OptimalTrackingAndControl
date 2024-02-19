@@ -20,7 +20,7 @@ from copy import deepcopy
 import os
 import glob
 
-from src_range.FIM.JU_Radar import *
+from src_range.FIM_new.FIM_RADAR import *
 from src_range.utils import NoiseParams
 
 
@@ -37,6 +37,7 @@ if __name__ == "__main__":
     update_steps = 0
     FIM_choice = "radareqn"
     measurement_choice = "radareqn"
+    method = "Single_FIM_2D_action"
 
     # Save frames as a GIF
     gif_filename = "radar_optimal_RICE.gif"
@@ -48,8 +49,8 @@ if __name__ == "__main__":
     frame_skip = 1
     tail_size = 5
     plot_size = 15
-    T = .05
-    NT = 300
+    T = .1
+    NT = 250
     N = 5
 
     # ==================== RADAR CONFIGURATION ======================== #
@@ -85,7 +86,7 @@ if __name__ == "__main__":
     key_args = {"Pt": Pt, "Gt": Gt, "Gr": Gr, "lam": lam, "L": L, "rcs": rcs, "R": 100,"SCNR":SCNR,"CNR":CNR,"s":s}
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
-    time_steps = 10
+    time_steps = 15
     R_sensors_to_targets = 5.
     R_sensors_to_sensors = 1.5
     time_step_size = T
@@ -102,26 +103,26 @@ if __name__ == "__main__":
     #
     ps = jax.random.uniform(key, shape=(N, 2), minval=-100, maxval=100)
     ps_init = deepcopy(ps)
+    # qs = jnp.array([[0.0, -0.0, 25., 20], #,#,
+    #                 [-50.4,30.32,-20,-10], #,
+    #                 [10,10,10,10],
+    #                 [20,20,5,-5]])
     z_elevation=10
     qs = jnp.array([[0.0, -0.0, z_elevation,25., 20,0], #,#,
                     [-50.4,30.32, z_elevation,-20,-10,0], #,
                     [10,10, z_elevation,10,10,0],
                     [20,20, z_elevation,5,-5,0]])
-    # qs = jnp.array([[0.0, -0.0, 25., 20], #,#,
-    #                 [-50.4,30.32,-20,-10], #,
-    #                 [10,10,10,10],
-    #                 [20,20,5,-5]])
 
-    M, d = qs.shape;
-    N = len(ps);
+    M, dm = qs.shape;
+    N, dn = ps.shape;
 
     # ======================== MPC Assumptions ====================================== #
     gamma = 0.9
-    paretos = jnp.ones((M,)) * 1 / M  # jnp.array([1/3,1/3,1/3])
+    # paretos = jnp.ones((M,)) * 1 / M  # jnp.array([1/3,1/3,1/3])
     # paretos = jnp.array([1/3,1/3,1/3,0,0])
 
-    assert len(paretos) == M, "Pareto weights not equal to number of targets!"
-    assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
+    # assert len(paretos) == M, "Pareto weights not equal to number of targets!"
+    # assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
 
 
     sigmaQ = np.sqrt(10 ** 2);
@@ -162,13 +163,16 @@ if __name__ == "__main__":
 
     nx = Q.shape[0]
 
-    Js = [jnp.eye(d) for m in range(M)]
+    # Js = jnp.stack([jnp.eye(d) for m in range(M)])
+    J = jnp.eye(dm*M) #jnp.stack([jnp.eye(d) for m in range(M)])
 
-    JU_FIM_D_Radar(ps, q=qs[[0],:], J=Js[0],
-                   A=A_single, Q=Q_single,
-                   Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
+    IM_fn = partial(Single_JU_FIM_Radar,A=A_single,Q=Q_single,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
+    # IM_fn(ps,qs[[0],:],Js=Js)
+    IM_fn(ps,qs,J=J)
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(JU_FIM_radareqn_target_logdet)
+    # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
+
+    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
 
     print("Optimization START: ")
     lbfgsb =  ScipyBoundedMinimize(fun=Multi_FIM_Logdet, method="L-BFGS-B",jit=True)
@@ -194,7 +198,7 @@ if __name__ == "__main__":
         start = time()
         qs_previous = m0
 
-        m0 = (A @ m0.reshape(-1, 1)).reshape(M, d)
+        m0 = (A @ m0.reshape(-1, 1)).reshape(M, dm)
 
         U_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=min_velocity, maxval=max_velocity)
         U_angular_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=min_angle_velocity,maxval=max_angle_velocity)
@@ -202,11 +206,10 @@ if __name__ == "__main__":
 
         # U = jnp.zeros((N,2,time_steps))
 
-        U = lbfgsb.run(U, bounds=bounds, chis=chis, ps=ps, qs=m0,
+        U = lbfgsb.run(U, bounds=bounds, chis=chis, radar_states=ps, target_states=m0,
                        time_step_sizes=time_step_sizes,
-                       Js=Js, paretos=paretos,
-                       A=A_single, Q=Q_single,
-                       Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,B=B,c=c,alpha=alpha,
+                       J=J,
+                       A=A_single,
                        gamma=gamma,
                        ).params
 
@@ -226,10 +229,10 @@ if __name__ == "__main__":
 
         # m0  = ps
 
-        Js = [JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],B=B,c=c,alpha=alpha) for i in range(len(Js))]
+        J = IM_fn(ps,m0,J) #[JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],s=s) for i in range(len(Js))]
 
         # print([jnp.linalg.slogdet(Ji)[1].item() for Ji in Js])
-        J_list.append([jnp.linalg.slogdet(Ji)[1].item() for Ji in Js])
+        J_list.append(jnp.linalg.slogdet(J)[1].ravel())
         print("FIM (higher is better) ",np.sum(J_list[-1]))
 
         save_time = time()
@@ -256,8 +259,9 @@ if __name__ == "__main__":
             axes[1].scatter(m0[:, 0], m0[:, 1], s=50, marker="o", color="g")
             axes[1].set_title("Instant Time Objective Function Map")
 
-            axes[2].plot(jnp.sum(jnp.array(J_list),axis=1))
-            axes[2].set_ylabel("sum of individual target logdet FIM")
+            axes[2].plot(jnp.sum(jnp.array(J_list),axis=1),"b-",label="Total FIM")
+            # axes[2].plot(jnp.array(J_list),"r-",label="Individual FIM")
+            axes[2].set_ylabel("Target logdet FIM")
             axes[2].set_xlabel("Time Step")
 
 

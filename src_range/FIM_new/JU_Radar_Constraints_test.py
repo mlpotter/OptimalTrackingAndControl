@@ -19,12 +19,13 @@ from copy import deepcopy
 import os
 import glob
 
-from src_range.FIM.JU_Radar import *
+from src_range.FIM_new.FIM_RADAR import *
 from src_range.utils import NoiseParams
 
 from scipy.optimize import minimize
 from scipy.optimize import NonlinearConstraint
 from scipy.optimize import Bounds
+
 
 
 config.update("jax_enable_x64", True)
@@ -40,7 +41,7 @@ if __name__ == "__main__":
     update_steps = 0
     FIM_choice = "radareqn"
     measurement_choice = "radareqn"
-    method = 'FIM2D'
+    method = 'Single_FIM_2D_noaction'
 
     # Save frames as a GIF
     pdf_filename = "radar_optimal_RICE.pdf"
@@ -96,16 +97,15 @@ if __name__ == "__main__":
     qs = jnp.array([
                     [-2500,-2500.], #,
                     [2500,2500], #,
-                    [2000,-3000]])
+                    [2000,-2500]])
 
     M, dm = qs.shape;
     N ,dn = ps.shape;
 
-    FIM_D_Radar(ps, qs=qs,
-                   Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,B=B,alpha=alpha,c=c)
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(FIM_radareqn_target_logdet,method=method)
+    IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
 
+    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
 
     constraints = []
     def distance_constraint_sensors_to_targets(ps_optim):
@@ -127,14 +127,14 @@ if __name__ == "__main__":
     constraints.append(NonlinearConstraint(distance_constraint_sensors_to_targets,R_sensors_to_targets/2,np.inf))
     constraints.append(NonlinearConstraint(distance_constraint_sensors_to_sensors,R_sensors_to_sensors/2,np.inf))
 
-    Multi_FIM_Logdet_partial = partial(Multi_FIM_Logdet,qs=qs,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
-    objective = lambda ps_optim: Multi_FIM_Logdet_partial(ps=ps_optim.reshape(N,dn))
+    Multi_FIM_Logdet_partial = partial(Multi_FIM_Logdet,target_states=qs)
+    objective = lambda ps_optim: Multi_FIM_Logdet_partial(radar_states=ps_optim.reshape(N,dn))
 
     jac_jax = jax.jit(jax.grad(objective,argnums=0))
     hess_jax = jax.jit(jax.hessian(objective,argnums=0))
 
-    jac = lambda ps_optim: jac_jax(ps=ps_optim).ravel()
-    hess = lambda ps_optim: hess_jax(ps=ps_optim)
+    jac = lambda ps_optim: jac_jax(ps_optim).ravel()
+    hess = lambda ps_optim: hess_jax(ps_optim)
 
     f_best = jnp.inf
     ps_best = 0
@@ -148,7 +148,7 @@ if __name__ == "__main__":
         ps_optim = SLSQP.x.reshape(N,dn)
         # ps = ps_optim
 
-        J = FIM_D_Radar(ps=ps_optim, qs=qs, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,c=c,B=B,alpha=alpha)
+        J = IM_fn(radar_states=ps_optim, target_states=qs)
         print("Matrix Rank: ",jnp.linalg.matrix_rank(J))
         if f_best > SLSQP.fun:
             f_best = SLSQP.fun

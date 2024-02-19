@@ -20,25 +20,26 @@ from jax import random
 
 
 @jit
-def RadarEqnMeasure(qs, ps,Gt,Gr,Pt,lam,rcs,L):
-    N = ps.shape[0]
-    M, nx = qs.shape
-
-    ps = jnp.concatenate((ps, jnp.array([4, 4, -4, 8]).reshape(N, 1)), -1)  # jnp.zeros((N,1))),-1)
-    qs = qs[:, :3]
+def RangeVelocityMeasure(qs, ps):
+    M, dm = qs.shape
+    N, dn = ps.shape
+    # ps = jnp.concatenate((ps, jnp.array([4, 4, -4, 8]).reshape(N, 1)), -1)  # jnp.zeros((N,1))),-1)
+    vs = jnp.tile(qs[:,dm//2:],(N,1,1))
+    qs = qs[:,:dm//2]
 
     differences = (ps[:, jnp.newaxis] - qs[jnp.newaxis, :])
-    distances = jnp.sqrt(jnp.sum((differences ** 2), -1))  # + 1e-8
+    ranges = jnp.sqrt(jnp.sum((differences ** 2), -1,keepdims=True))  # + 1e-8
 
-    coef = Gt * Gr * Pt * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
 
-    v = (coef * (distances) ** (-2)).reshape(N * M, -1)
+    measure = jnp.concatenate((ranges,vs),axis=-1)
 
-    return v
+    measure = measure.reshape(N * M, -1)
+
+    return measure
 
 
 def generate_samples(key, XT, PT, A, Q,
-                     Gt,Gr,Pt,lam,rcs,L,s,
+                     Gt,Gr,Pt,lam,rcs,L,c,B,alpha,sigmaV,
                      TN):
     _, subkey = jax.random.split(key)
 
@@ -60,22 +61,9 @@ def generate_samples(key, XT, PT, A, Q,
         XT_noise = XT + QK[k, :]
 
         # measure onward!
-        YT = RadarEqnMeasure(XT_noise.reshape(M, nx), PT,Gt,Gr,Pt,lam,rcs,L).ravel()
+        YT = RangeVelocityMeasure(XT_noise.reshape(M, nx), PT).ravel()
 
-        # sigma,s = SNR2PARAM(SNR,YT)
 
-        # RICE
-        # b,scale,loc = SCIPY2RICE(sigma,s)
-        # YT_noise = ss.rice.rvs(b=b,scale=scale,loc=loc)**2
-
-        # RAYLEIGH
-        # YT_noise = ss.expon.rvs(scale=PN+YT,loc=0)
-
-        #
-        # Amp, Ma, zeta, s =  NoiseParams(YT, SCNR, CNR=CNR)
-
-        YT_noise = ss.ncx2.rvs(df=2, nc=YT / (s ** 2), scale=s ** 2)
-        # Z = rv.rvs((N,))
 
         # append state and measurement
         XT_trajectories.append(XT_noise.reshape(-1, ))

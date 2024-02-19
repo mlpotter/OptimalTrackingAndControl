@@ -16,30 +16,16 @@ from copy import deepcopy
 from src_range.control.Sensor_Dynamics import state_multiple_update
 
 
-@jit
-def JU_FIM_radareqn_target_logdet(ps,qs,J,
-                               A,Q,
-                               Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
-
-    # FIM of single target, multiple sensors
-
-    FIM = JU_FIM_D_Radar(ps=ps,q=qs,J=J,
-                         A=A,Q=Q,
-                         Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
-
-    # sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(FIM)+jnp.eye(FIM.shape[0])*1e-5)
-    # logdet = -logdet
-    sign,logdet = jnp.linalg.slogdet(FIM)
-    return logdet
 #
-@jit
-def JU_FIM_D_Radar(ps,q,J,A,Q,Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
-    q = q.reshape(1,-1)
-    N,dn= ps.shape
-    _,dm = q.shape
 
-    ps = jnp.concatenate((ps,jnp.zeros((N,1))),-1)
-    q = q[:,:dm//2]
+@jit
+def Multiple_JU_FIM_Radar(radar_states,target_state,Js,A,Q,Pt,Gt,Gr,L,lam,rcs,B,alpha,c):
+    target_state = target_state.reshape(1,-1)
+    N,dn= radar_states.shape
+    M,dm = target_state.shape
+
+    # radar_states = jnp.concatenate((radar_states,jnp.zeros((N,1))),-1)
+    target_position = target_state[:,:dm//2]
 
     # Qinv = jnp.linalg.inv(Q+jnp.eye(dm)*1e-8)
     # # Qinv = jnp.linalg.inv(Q)
@@ -48,16 +34,19 @@ def JU_FIM_D_Radar(ps,q,J,A,Q,Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
     # D12 = -A.T @ Qinv
     # D21 = D12.T
 
-    d = (q[jnp.newaxis,:,:] - ps[:,jnp.newaxis,:])
+    d = (target_position[jnp.newaxis,:,:] - radar_states[:,jnp.newaxis,:])
 
     distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
 
     K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
+
     C = c**2 / (alpha*B**2) * 1/K
 
+    # dd^T / ||d||^4 * rho * rho/(rho+1)
+    # jnp.einsum("ijk,ilm->ikm", d, d)
     coef = jnp.sqrt((1/(C*distances**6) + 8/(distances**4)))
     outer_vector = d * coef
-    outer_product = (outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
+    outer_product = (outer_vector.transpose(0,2,1) @ outer_vector)
 
     # append zeros because there is no velocity in the radar equation...
 
@@ -76,25 +65,56 @@ def JU_FIM_D_Radar(ps,q,J,A,Q,Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
 
 
 @jit
-def FIM_radareqn_target_logdet(ps,qs,
-                               Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
+def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,B,alpha,c):
 
-    # FIM of single target, multiple sensors
+    N,dn= radar_states.shape
+    M,dm = target_states.shape
 
-    FIM = FIM_D_Radar(ps=ps,qs=qs,
-                         Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
+    radar_states = jnp.concatenate((radar_states,jnp.zeros((N,1))),-1)
+    target_positions = target_states[:,:dm//2]
 
-    # sign,logdet = jnp.linalg.slogdet(jnp.linalg.inv(FIM)+jnp.eye(FIM.shape[0])*1e-5)
-    # logdet = -logdet
-    sign,logdet = jnp.linalg.slogdet(FIM)
-    return logdet
+    # Qinv = jnp.linalg.inv(Q+jnp.eye(dm)*1e-8)
+    # # Qinv = jnp.linalg.inv(Q)
+    #
+    # D11 = A.T @ Qinv @ A
+    # D12 = -A.T @ Qinv
+    # D21 = D12.T
+
+    d = (target_positions[jnp.newaxis,:,:] - radar_states[:,jnp.newaxis,:])
+
+    distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
+
+    K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
+
+    C = c**2 / (alpha*B**2) * 1/K
+
+    # dd^T / ||d||^4 * rho * rho/(rho+1)
+    # jnp.einsum("ijk,ilm->ikm", d, d)
+    coef = jnp.sqrt((1/(C*distances**6) + 8/(distances**4)))
+    outer_vector = d * coef
+    outer_product = (outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
+
+    # append zeros because there is no velocity in the radar equation...
+
+    # zeros = jnp.zeros_like(d)
+    # d = jnp.concatenate((d,zeros),-1)
+
+    # dd^T / ||d||^4 * rho * rho/(rho+1)
+    # jnp.einsum("ijk,ilm->ikm", d, d)
+
+    # D22 = jnp.sum(outer_product,axis=0) + Qinv
+
+    # J = D22 - D21 @ jnp.linalg.inv(J + D11) @ D12
+    J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
+
+    return J
 
 @jit
-def FIM_D_Radar(ps,qs,Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
-    N,dn= ps.shape
-    M,dm = qs.shape
+def Single_FIM_Radar(radar_states,target_states,Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
+    N,dn= radar_states.shape
+    M,dm = target_states.shape
 
-    d = (qs[jnp.newaxis,:,:] - ps[:,jnp.newaxis,:])
+    d = (target_states[jnp.newaxis,:,:] - radar_states[:,jnp.newaxis,:])
 
     distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
 
@@ -112,61 +132,79 @@ def FIM_D_Radar(ps,qs,Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
     J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
     return J
 
-def Multi_FIM_Logdet_decorator_MPC(score_fn,method="action"):
+
+def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
     # the lower this value, the better!
 
-    if method=="action":
+    if method=="Multiple_FIM_2D_action":
         @jit
-        def Multi_FIM_Logdet(U,chis,ps,qs,time_step_sizes,Js,paretos,
-                             A,Q,
-                             Pt,Gt,Gr,L,lam,rcs,c,B,alpha,
+        def Multi_FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,Js,paretos,
+                             A,
                              gamma):
             horizon = U.shape[1]
-            M,dm = qs.shape
-            N,dn = ps.shape
-            # ps = jnp.expand_dims(ps,1)
+            M,dm = target_states.shape
+            N,dn = radar_states.shape
 
-            ps,chis,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,0))(ps,U,chis,time_step_sizes)
+            _,_,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,0))(radar_states,U,chis,time_step_sizes)
 
             multi_FIM_obj = 0
 
-            Js = jnp.stack(Js)
+            IM_parallel = vmap(IM_fn,in_axes=(None,0,0))
 
-            fim_logdet_parallel = vmap(partial(score_fn,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha),in_axes=(None,0,0))
-            Js_update_parallel = vmap(partial(JU_FIM_D_Radar,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha),in_axes=(None,0,0))
             # iterate through time step
             for t in jnp.arange(1,horizon+1):
                 # iterate through each FIM corresponding to a target
-                # for m in range(M):
-                #     Jm = Js[m]
-                multi_FIM_obj += jnp.sum(gamma**(t-1) * paretos * fim_logdet_parallel(ps_trajectory[:,t],qs,Js))
 
-                                             # paretos[m] * FIM_logdet(ps=ps_trajectory[:,t].squeeze(),qs=qs[[m],:],J=Jm,
-                                             #                                A=A,Q=Q,
-                                             #                                Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
-                    #
-                    # Js[m] = JU_FIM_D_Radar(ps=ps_trajectory[:,t].squeeze(), q=qs[[m],:], J=Jm,
-                    #                        A=A, Q=Q,
-                    #                        Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,s=s)
-                Js = Js_update_parallel(ps_trajectory[:,t],qs,Js)
+                Js = IM_parallel(ps_trajectory[:,t],target_states,Js)
 
-                qs = (A @ qs.reshape(-1, dm).T).T.reshape(M, dm)
+                _,logdets = jnp.linalg.slogdet(Js)
+                multi_FIM_obj += jnp.sum(gamma**(t-1) * paretos * logdets.ravel())
+
+
+                target_states = (A @ target_states.reshape(-1, dm).T).T.reshape(M, dm)
 
             return -multi_FIM_obj
 
-    elif method=="FIM2D":
+    elif method=="Single_FIM_2D_action":
         @jit
-        def Multi_FIM_Logdet(ps, qs,
-                             Pt, Gt, Gr, L, lam, rcs,c,B,alpha):
+        def Multi_FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,J,
+                             A,
+                             gamma):
+            horizon = U.shape[1]
+            M,dm = target_states.shape
+            N,dn = radar_states.shape
 
-            M, dm = qs.shape
-            N, dn = ps.shape
+            _,_,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,0))(radar_states,U,chis,time_step_sizes)
+
+            multi_FIM_obj = 0
+
+            # iterate through time step
+            for t in jnp.arange(1,horizon+1):
+                # iterate through each FIM corresponding to a target
+
+                J = IM_fn(ps_trajectory[:,t],target_states,J)
+
+                _,logdet = jnp.linalg.slogdet(J)
+                multi_FIM_obj += gamma**(t-1) * logdet
+
+
+                target_states = (A @ target_states.reshape(-1, dm).T).T.reshape(M, dm)
+
+            return -multi_FIM_obj
+
+
+    elif method=="Single_FIM_2D_noaction":
+        @jit
+        def Multi_FIM_Logdet(radar_states, target_states):
+
+            M, dm = target_states.shape
+            N, dn = radar_states.shape
             # ps = jnp.expand_dims(ps,1)
 
-            multi_FIM_obj = score_fn(ps,qs, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,c=c,B=B,alpha=alpha)
+            sign, logdet = jnp.lnalg.slogdet(IM_fn(radar_states=radar_states,target_states=target_states))
 
-            return -multi_FIM_obj
+            return -logdet
 
 
     return Multi_FIM_Logdet
@@ -211,6 +249,8 @@ def FIM_2D_Visualization(ps,qs,
     sign,logdet = jnp.linalg.slogdet(J)
 
     return qx,qy,logdet.reshape(N,N)
+
+
 
 
 

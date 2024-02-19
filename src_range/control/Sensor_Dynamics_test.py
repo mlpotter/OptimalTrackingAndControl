@@ -1,4 +1,4 @@
-from src.control.Sensor_Dynamics import *
+from src_range.control.Sensor_Dynamics import *
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

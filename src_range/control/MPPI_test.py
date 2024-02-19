@@ -8,7 +8,7 @@ from jaxopt import ScipyMinimize
 
 
 
-from src.FIM.JU_Radar import JU_FIM_D_Radar,Multi_FIM_Logdet_decorator_MPC,JU_FIM_radareqn_target_logdet
+from src_range.FIM.FIM_RADAR import JU_FIM_D_Radar,Multi_FIM_Logdet_decorator_MPC,JU_FIM_radareqn_target_logdet
 
 import matplotlib
 matplotlib.use('Agg')
@@ -23,8 +23,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from src.utils import NoiseParams
-from src.control.MPPI import *
+from src_range.utils import NoiseParams
+from src_range.control.MPPI import *
 
 import os
 

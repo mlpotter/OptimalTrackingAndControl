@@ -6,8 +6,8 @@ from jax import vmap
 import functools
 from jax import random
 
-from src.utils import NoiseParams,place_sensors
-from src.tracking.Particle_Filter import *
+from src_range.utils import NoiseParams,place_sensors
+from src_range.tracking.Particle_Filter import *
 
 import numpy as np
 
@@ -80,16 +80,17 @@ if __name__ == "__main__":
     seed = 123
     key = jax.random.PRNGKey(seed)
 
-    key = random.PRNGKey(0)
     np.random.seed(123)
 
-    speedoflight = 299792458
+    c = 299792458
     fc = 1e9;
     Gt = 2000;
     Gr = 2000;
-    lam = speedoflight / fc
+    lam = c / fc
     rcs = 1;
-    L = 1
+    L = 1;
+    alpha = (jnp.pi)**2 / 3
+    B = 0.05 * 10**5
 
     # calculate Pt such that I achieve SNR=x at distance R=y
     R = 100
@@ -121,44 +122,45 @@ if __name__ == "__main__":
     ps = place_sensors([-100, 100], [-100, 100], N)
 
     z_elevation = 150
-    qs = jnp.array([[0.0, -0.0, z_elevation, 50., 20.2, 0],
-                    [-3.1, 2.23, z_elevation, .1, 15.0, 0]])  # ,
+    qs = jnp.array([[0.0, -0.0, 50., 20.2],
+                    [-3.1, 2.23, .1, 15.0]])  # ,
     # [-5.4,3.32,z_elevation,-5,-5,0]])
 
-    M, d = qs.shape;
+    M, dm = qs.shape;
     N = len(ps);
 
     sigmaQ = np.sqrt(10 ** (3));
+    sigmaV = np.sqrt(10** (-1))
 
     print("SigmaQ (state noise)={}".format(sigmaQ))
 
-    A_single = jnp.array([[1., 0, 0, T, 0, 0],
-                          [0, 1., 0, 0, T, 0],
-                          [0, 0, 1, 0, 0, T],
-                          [0, 0, 0, 1, 0, 0],
-                          [0, 0, 0, 0, 1., 0],
-                          [0, 0, 0, 0, 0, 1]])
-
-    Q_single = jnp.array([
-        [(T ** 4) / 4, 0, 0, (T ** 3) / 2, 0, 0],
-        [0, (T ** 4) / 4, 0, 0, (T ** 3) / 2, 0],
-        [0, 0, (T ** 4) / 4, 0, 0, (T ** 3) / 2],
-        [(T ** 3) / 2, 0, 0, (T ** 2), 0, 0],
-        [0, (T ** 3) / 2, 0, 0, (T ** 2), 0],
-        [0, 0, (T ** 3) / 2, 0, 0, (T ** 2)]
-    ]) * sigmaQ ** 2
-
-    # A_single = jnp.array([[1., 0, T, 0],
-    #                       [0, 1., 0, T],
-    #                       [0, 0, 1, 0],
-    #                       [0, 0, 0, 1.]])
+    # A_single = jnp.array([[1., 0, 0, T, 0, 0],
+    #                       [0, 1., 0, 0, T, 0],
+    #                       [0, 0, 1, 0, 0, T],
+    #                       [0, 0, 0, 1, 0, 0],
+    #                       [0, 0, 0, 0, 1., 0],
+    #                       [0, 0, 0, 0, 0, 1]])
     #
     # Q_single = jnp.array([
-    #     [(T ** 4) / 4, 0, (T ** 3) / 2, 0],
-    #     [0, (T ** 4) / 4, 0, (T ** 3) / 2],
-    #     [(T ** 3) / 2, 0, (T ** 2), 0],
-    #     [0, (T ** 3) / 2, 0, (T ** 2)]
+    #     [(T ** 4) / 4, 0, 0, (T ** 3) / 2, 0, 0],
+    #     [0, (T ** 4) / 4, 0, 0, (T ** 3) / 2, 0],
+    #     [0, 0, (T ** 4) / 4, 0, 0, (T ** 3) / 2],
+    #     [(T ** 3) / 2, 0, 0, (T ** 2), 0, 0],
+    #     [0, (T ** 3) / 2, 0, 0, (T ** 2), 0],
+    #     [0, 0, (T ** 3) / 2, 0, 0, (T ** 2)]
     # ]) * sigmaQ ** 2
+
+    A_single = jnp.array([[1., 0, T, 0],
+                          [0, 1., 0, T],
+                          [0, 0, 1, 0],
+                          [0, 0, 0, 1.]])
+
+    Q_single = jnp.array([
+        [(T ** 4) / 4, 0, (T ** 3) / 2, 0],
+        [0, (T ** 4) / 4, 0, (T ** 3) / 2],
+        [(T ** 3) / 2, 0, (T ** 2), 0],
+        [0, (T ** 3) / 2, 0, (T ** 2)]
+    ]) * sigmaQ ** 2
 
     A = jnp.kron(jnp.eye(M), A_single);
     Q = jnp.kron(jnp.eye(M), Q_single);  # + np.eye(M*Q_single.shape[0])*1e-1;
@@ -167,13 +169,13 @@ if __name__ == "__main__":
     nx = Q.shape[0]
 
     # Generate the trajectory and measurements to trajectory: X_1:k, Y_1:k
-    key, XT, YT = generate_samples(key, qs, ps, A, Q,
-                                   Gt,Gr,Pt,lam,rcs,L,s,
-                                   TN)
+    key, XT, YT = generate_samples(key, qs, ps, A=Q, Q=Q,
+                                   Gt=Gt,Gr=Gr,Pt=Pt,lam=lam,rcs=rcs,L=L,c=c,B=B,alpha=alpha,sigmaV=sigmaV,
+                                   TN=TN)
 
     key, subkey = random.split(key)
-    m0 = qs.at[:, 3:].add(5);
-    m0 = m0.at[:, :3].add(-20)
+    m0 = qs.at[:, dm//2:].add(5);
+    m0 = m0.at[:, :dm//2].add(-20)
 
     P0_singular = jnp.diag(jnp.array([50, 50, 50, 50, 50, 50]));
     P0 = jnp.kron(jnp.eye(M), P0_singular)
