@@ -22,9 +22,9 @@ def create_frame(t, Xnext, XT, ps, m0, ws, neffs, vs, heights, axes=None):
     wmin, wmax = jnp.min(ws), jnp.max(ws)
     ws_minmax = (ws - wmin) / (wmax - wmin + 1e-16)
     pf_point = (Wnext * Xnext).sum(axis=0).ravel()
-    pf_point = pf_point.reshape(M, d)
-    Xnext = Xnext.reshape(-1, M, d)
-    XT = XT.reshape(-1, M, d)
+    pf_point = pf_point.reshape(M, dm)
+    Xnext = Xnext.reshape(-1, M, dm)
+    XT = XT.reshape(-1, M, dm)
 
     pfs = axes[0].scatter(Xnext[:, :, 0], Xnext[:, :, 1], c='green', alpha=ws_minmax, label="Particle States")
     target_traj = axes[0].plot(XT[:, :, 0], XT[:, :, 1], marker='d', color="r", alpha=0.3, label='_nolegend_')
@@ -46,7 +46,7 @@ def create_frame(t, Xnext, XT, ps, m0, ws, neffs, vs, heights, axes=None):
     axes[2].set_ylabel("Neff")
     axes[2].set_xlabel("t")
 
-    neffs = axes[3].plot(vs, 'o-')
+    ranges = axes[3].plot(vs, 'o-')
     axes[3].set_ylabel("Radar Measure")
     axes[3].set_xlabel("t")
 
@@ -127,10 +127,10 @@ if __name__ == "__main__":
     # [-5.4,3.32,z_elevation,-5,-5,0]])
 
     M, dm = qs.shape;
-    N = len(ps);
+    N , dn = ps.shape
 
     sigmaQ = np.sqrt(10 ** (3));
-    sigmaV = np.sqrt(10** (-1))
+    sigmaV = np.sqrt(5)
 
     print("SigmaQ (state noise)={}".format(sigmaQ))
 
@@ -169,7 +169,7 @@ if __name__ == "__main__":
     nx = Q.shape[0]
 
     # Generate the trajectory and measurements to trajectory: X_1:k, Y_1:k
-    key, XT, YT = generate_samples(key, qs, ps, A=Q, Q=Q,
+    key, XT, YT = generate_range_samples(key, qs, ps, A=A, Q=Q,
                                    Gt=Gt,Gr=Gr,Pt=Pt,lam=lam,rcs=rcs,L=L,c=c,B=B,alpha=alpha,sigmaV=sigmaV,
                                    TN=TN)
 
@@ -177,7 +177,9 @@ if __name__ == "__main__":
     m0 = qs.at[:, dm//2:].add(5);
     m0 = m0.at[:, :dm//2].add(-20)
 
-    P0_singular = jnp.diag(jnp.array([50, 50, 50, 50, 50, 50]));
+    # P0_singular = jnp.diag(jnp.array([50, 50, 50, 50, 50, 50]));
+    P0_singular = jnp.diag(jnp.array([50, 50, 50, 50]));
+
     P0 = jnp.kron(jnp.eye(M), P0_singular)
 
     Xprev = jax.random.multivariate_normal(subkey, m0.ravel(), P0, shape=(NP,), method="cholesky")
@@ -195,23 +197,24 @@ if __name__ == "__main__":
 
     frame_names = []
     fig, axes = plt.subplots(nrows=1, ncols=5, figsize=(25, 5));
-    Vs = jnp.zeros((TN, N * M))
+    Vs = jnp.zeros((TN, N * M * (dm//2 + 1)))
     heights = jnp.zeros((TN, M))
-    Vnext_parallel = vmap(functools.partial(RadarEqnMeasure,Gt=Gt,Gr=Gr,Pt=Pt,lam=lam,rcs=rcs,L=L), in_axes=(0, None))
+    Vnext_parallel = vmap(RangeVelocityMeasure, in_axes=(0, None))
+    weight_update_partial = partial(weight_update,Pt=Pt,Gt=Gt,Gr=Gr,lam=lam,rcs=rcs,L=L,c=c,B=B,alpha=alpha,sigmaV=sigmaV,M=M,N=N,dm=dm,dn=dn)
     for t in tqdm(range(0, TN)):
         # get the measurement  y_k+1
         ynext = YT[t].reshape(-1, 1)
 
         # sample with state transition matrix x_k+1
         key, Xnext = optimal_importance_dist_sample(key, Xprev, A, Q)
-        heights = heights.at[t].set(Xnext.reshape(-1, M, d).mean(axis=0)[:, 2])
+        heights = heights.at[t].set(Xnext.reshape(-1, M, dm).mean(axis=0)[:, 2])
 
         # Generate the expected Measurements for x_k+1 (v_k+1)
         Vnext = Vnext_parallel(Xnext.reshape(-1, M, nx // M), ps)
         Vs = Vs.at[t].set(Vnext.mean(0).ravel())
 
         # Update particle weights recursively...
-        Wnext = weight_update(Wprev, Vnext, s,ynext)
+        Wnext = weight_update_partial(Wprev, Vnext,ynext)
         neffs = effective_samples(Wnext)
         Measures.append(Vnext)
         Neffs.append(neffs)
@@ -223,7 +226,7 @@ if __name__ == "__main__":
             break
 
         if t % every_other_frame == 0:
-            frame = create_frame(t, Xnext, XT[:t + 1], ps, m0, Wnext, Neffs, YT[:t + 1], heights[:t + 1], axes=axes)
+            frame = create_frame(t, Xnext, XT[:t + 1], ps, m0, Wnext, Neffs, YT[:t + 1,:,0], heights[:t + 1], axes=axes)
             frame_names.append(frame)
 
         if neffs < (NP * 2 / 3) or (t + 1) % 250 == 0:

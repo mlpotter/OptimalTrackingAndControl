@@ -37,7 +37,7 @@ if __name__ == "__main__":
     update_steps = 0
     FIM_choice = "radareqn"
     measurement_choice = "radareqn"
-    method = "Single_FIM_2D_action"
+    method = "Single_FIM_3D_action"
 
     # Save frames as a GIF
     gif_filename = "radar_optimal_RICE.gif"
@@ -65,25 +65,28 @@ if __name__ == "__main__":
     B = 0.05 * 10**5
 
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 1000
+    R = 100
 
-    K = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
-    coef = K / (R ** 4)
-
-
-    SCNR = -20
-    CNR = -10
     Pt = 10000
-    Amp, Ma, zeta, s = NoiseParams(Pt * coef, SCNR, CNR=CNR)
+    K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
+    Pr = K / (R ** 4)
 
-    print("Spread: ",s**2)
-    print("Power Return (RCS): ",coef*Pt)
+    # get the power of the noise of the signal
+    SNR=0
+    sigmaW = jnp.sqrt(Pr/ (10**(SNR/10)))
+
+
+
+    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
+
+
+
+    print("Power Return (RCS): ",Pr)
+    print("Noise Power: ",sigmaW**2)
     print("K",K)
 
     print("Pt (peak power)={:.9f}".format(Pt))
     print("lam ={:.9f}".format(lam))
-
-    key_args = {"Pt": Pt, "Gt": Gt, "Gr": Gr, "lam": lam, "L": L, "rcs": rcs, "R": 100,"SCNR":SCNR,"CNR":CNR,"s":s}
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
     time_steps = 15
@@ -125,7 +128,8 @@ if __name__ == "__main__":
     # assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
 
 
-    sigmaQ = np.sqrt(10 ** 2);
+    sigmaQ = jnp.sqrt(10 ** 2);
+    sigmaV = jnp.sqrt(9)
 
     print("SigmaQ (state noise)={}".format(sigmaQ))
 
@@ -166,7 +170,7 @@ if __name__ == "__main__":
     # Js = jnp.stack([jnp.eye(d) for m in range(M)])
     J = jnp.eye(dm*M) #jnp.stack([jnp.eye(d) for m in range(M)])
 
-    IM_fn = partial(Single_JU_FIM_Radar,A=A_single,Q=Q_single,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
+    IM_fn = partial(Single_JU_FIM_Radar,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
     # IM_fn(ps,qs[[0],:],Js=Js)
     IM_fn(ps,qs,J=J)
 
@@ -209,7 +213,7 @@ if __name__ == "__main__":
         U = lbfgsb.run(U, bounds=bounds, chis=chis, radar_states=ps, target_states=m0,
                        time_step_sizes=time_step_sizes,
                        J=J,
-                       A=A_single,
+                       A=A,
                        gamma=gamma,
                        ).params
 
@@ -250,8 +254,8 @@ if __name__ == "__main__":
             axes[0].set_title(f"k={k}")
 
             qx,qy,logdet_grid = FIM_Visualization(ps=ps, qs=m0,
-                                                  Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s,
-                                                  N=250)
+                                                  Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW,
+                                                  N=1000)
 
             axes[1].contourf(qx, qy, logdet_grid, levels=20)
             axes[1].scatter(ps[:, 0], ps[:, 1], s=50, marker="x", color="r")

@@ -19,7 +19,7 @@ from src_range.control.Sensor_Dynamics import state_multiple_update
 #
 
 @jit
-def Multiple_JU_FIM_Radar(radar_states,target_state,Js,A,Q,Pt,Gt,Gr,L,lam,rcs,B,alpha,c):
+def Multiple_JU_FIM_Radar(radar_states,target_state,Js,A,Q,Pt,Gt,Gr,L,lam,rcs,fc,sigmaW,c):
     target_state = target_state.reshape(1,-1)
     N,dn= radar_states.shape
     M,dm = target_state.shape
@@ -40,11 +40,11 @@ def Multiple_JU_FIM_Radar(radar_states,target_state,Js,A,Q,Pt,Gt,Gr,L,lam,rcs,B,
 
     K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
 
-    C = c**2 / (alpha*B**2) * 1/K
+    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
 
     # dd^T / ||d||^4 * rho * rho/(rho+1)
     # jnp.einsum("ijk,ilm->ikm", d, d)
-    coef = jnp.sqrt((1/(C*distances**6) + 8/(distances**4)))
+    coef = jnp.sqrt((4/(C*distances**6) + 8/(distances**4)))
     outer_vector = d * coef
     outer_product = (outer_vector.transpose(0,2,1) @ outer_vector)
 
@@ -65,7 +65,7 @@ def Multiple_JU_FIM_Radar(radar_states,target_state,Js,A,Q,Pt,Gt,Gr,L,lam,rcs,B,
 
 
 @jit
-def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,B,alpha,c):
+def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaV,sigmaW):
 
     N,dn= radar_states.shape
     M,dm = target_states.shape
@@ -73,12 +73,12 @@ def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,B,al
     radar_states = jnp.concatenate((radar_states,jnp.zeros((N,1))),-1)
     target_positions = target_states[:,:dm//2]
 
-    # Qinv = jnp.linalg.inv(Q+jnp.eye(dm)*1e-8)
+    Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
     # # Qinv = jnp.linalg.inv(Q)
     #
-    # D11 = A.T @ Qinv @ A
-    # D12 = -A.T @ Qinv
-    # D21 = D12.T
+    D11 = A.T @ Qinv @ A
+    D12 = -A.T @ Qinv
+    D21 = D12.T
 
     d = (target_positions[jnp.newaxis,:,:] - radar_states[:,jnp.newaxis,:])
 
@@ -86,48 +86,42 @@ def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,B,al
 
     K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
 
-    C = c**2 / (alpha*B**2) * 1/K
+    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
 
     # dd^T / ||d||^4 * rho * rho/(rho+1)
     # jnp.einsum("ijk,ilm->ikm", d, d)
-    coef = jnp.sqrt((1/(C*distances**6) + 8/(distances**4)))
+    coef = jnp.sqrt((4/(C*distances**6) + 8/(distances**4)))
     outer_vector = d * coef
     outer_product = (outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
+    J_standard = jax.scipy.linalg.block_diag(*[jax.scipy.linalg.block_diag(outer_product[m],jnp.eye(dm//2)* 1 / (sigmaV**2)) for m in range(M)])
 
-    # append zeros because there is no velocity in the radar equation...
+    D22 = J_standard + Qinv
 
-    # zeros = jnp.zeros_like(d)
-    # d = jnp.concatenate((d,zeros),-1)
-
-    # dd^T / ||d||^4 * rho * rho/(rho+1)
-    # jnp.einsum("ijk,ilm->ikm", d, d)
-
-    # D22 = jnp.sum(outer_product,axis=0) + Qinv
-
-    # J = D22 - D21 @ jnp.linalg.inv(J + D11) @ D12
-    J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
+    J = D22 - D21 @ jnp.linalg.inv(J + D11) @ D12
+    # J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
 
     return J
 
-@jit
-def Single_FIM_Radar(radar_states,target_states,Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
+# @jit
+def Single_FIM_Radar(radar_states,target_states,Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaW):
     N,dn= radar_states.shape
     M,dm = target_states.shape
 
-    d = (target_states[jnp.newaxis,:,:] - radar_states[:,jnp.newaxis,:])
+    target_positions = target_states[:,:dm//2]
+
+    d = (target_positions[jnp.newaxis,:,:] - radar_states[:,jnp.newaxis,:])
 
     distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
 
     K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
 
-    C = c**2 / (alpha*B**2) * 1/K
+    # C =  sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
+    C =  c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
+    coef = jnp.sqrt((4/(C*distances**6) + 8/(distances**4)))
 
-    # dd^T / ||d||^4 * rho * rho/(rho+1)
-    # jnp.einsum("ijk,ilm->ikm", d, d)
-    coef = jnp.sqrt((1/(C*distances**6) + 8/(distances**4)))
     outer_vector = d * coef
-    outer_product = (outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
 
+    outer_product = (outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
 
     J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
     return J
@@ -166,7 +160,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
             return -multi_FIM_obj
 
-    elif method=="Single_FIM_2D_action":
+    elif method=="Single_FIM_3D_action":
         @jit
         def Multi_FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,J,
                              A,
@@ -189,7 +183,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
                 multi_FIM_obj += gamma**(t-1) * logdet
 
 
-                target_states = (A @ target_states.reshape(-1, dm).T).T.reshape(M, dm)
+                target_states = (A @ target_states.reshape(-1, M*dm).T).T.reshape(M, dm)
 
             return -multi_FIM_obj
 
@@ -202,7 +196,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
             N, dn = radar_states.shape
             # ps = jnp.expand_dims(ps,1)
 
-            sign, logdet = jnp.lnalg.slogdet(IM_fn(radar_states=radar_states,target_states=target_states))
+            sign, logdet = jnp.linalg.slogdet(IM_fn(radar_states=radar_states,target_states=target_states))
 
             return -logdet
 
@@ -211,7 +205,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
 @partial(jit,static_argnames=['N',"space"])
 def FIM_2D_Visualization(ps,qs,
-                      Pt,Gt,Gr,L,lam,rcs,c,B,alpha,N,space):
+                      Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaW,N,space):
 
 
     sensor_and_targets = jnp.vstack((ps,qs))
@@ -230,11 +224,11 @@ def FIM_2D_Visualization(ps,qs,
 
     K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
 
-    C = c**2 / (alpha*B**2) * 1/K
+    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
 
     # dd^T / ||d||^4 * rho * rho/(rho+1)
     # jnp.einsum("ijk,ilm->ikm", d, d)
-    coef = jnp.sqrt((1/(C*distances**6) + 8/(distances**4)))
+    coef = jnp.sqrt((4/(C*distances**6) + 8/(distances**4)))
 
     outer_vector = d * coef
 
@@ -256,13 +250,13 @@ def FIM_2D_Visualization(ps,qs,
 
 @partial(jit,static_argnames=['N'])
 def FIM_Visualization(ps,qs,
-                      Pt,Gt,Gr,L,lam,rcs,s,N):
+                      Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaW,N):
 
 
     sensor_and_targets = jnp.vstack((ps,qs[:,:2]))
 
-    x_max,y_max = jnp.min(sensor_and_targets,axis=0)-30
-    x_min,y_min = jnp.max(sensor_and_targets,axis=0)+30
+    x_max,y_max = jnp.min(sensor_and_targets,axis=0)-300
+    x_min,y_min = jnp.max(sensor_and_targets,axis=0)+300
 
     qx,qy = jnp.meshgrid(jnp.linspace(x_min,x_max,N),
                          jnp.linspace(y_min,y_max,N))
@@ -275,9 +269,12 @@ def FIM_Visualization(ps,qs,
 
     K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
 
-    constant = jnp.sqrt(4 / (distances**8 * s**2 ) * K**2 / (K + s**2 * distances**4 ))
+    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
 
-    outer_vector = jnp.expand_dims(d * constant,-1)
+
+    coef = jnp.sqrt((4/(C*distances**6) + 8/(distances**4)))
+
+    outer_vector = jnp.expand_dims(d * coef,-1)
 
     # dd^T / ||d||^4 * rho * rho/(rho+1)
     outer_product =  outer_vector @ outer_vector.transpose(0,1,3,2)

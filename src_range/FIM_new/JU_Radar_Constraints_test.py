@@ -51,7 +51,7 @@ if __name__ == "__main__":
     os.makedirs(photo_dump, exist_ok=True)
 
 
-    Restarts = 25
+    Restarts = 10
     N = 6
 
     # ==================== RADAR CONFIGURATION ======================== #
@@ -64,26 +64,27 @@ if __name__ == "__main__":
     L = 1;
     alpha = (jnp.pi)**2 / 3
     B = 0.05 * 10**5
+    Pt = 10000
+    K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
 
 
 
     # calculate Pt such that I achieve SNR=x at distance R=y
     R = 100
-
-    K = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
-    coef = K / (R ** 4)
+    Pr = K / (R ** 4)
 
 
-    SCNR = -20
-    CNR = -10
-    Pt = 10000
-    Amp, Ma, zeta, s = NoiseParams(Pt * coef, SCNR, CNR=CNR)
+    SNR = 0
+    # calculate Pt such that I achieve SNR=x at distance R=y
+    sigmaW = jnp.sqrt(Pr / (10**(SNR/10)))
 
-    print("Spread: ",s**2)
-    print("Power Return (RCS): ",coef*Pt)
+    # C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
+
+    # print("Power Return (RCS): ",coef*Pt)
     print("K",K)
 
     print("Pt (peak power)={:.9f}".format(Pt))
+    print("Noise Power={:.5f}".format(sigmaW**2))
     print("lam ={:.9f}".format(lam))
 
     # ==================== SENSOR CONSTRAINTS ======================== #
@@ -95,22 +96,22 @@ if __name__ == "__main__":
     #
     ps = jax.random.uniform(key, shape=(N, 2), minval=-2000, maxval=2000)
     qs = jnp.array([
-                    [-2500,-2500.], #,
-                    [2500,2500], #,
-                    [2000,-2500]])
+                    [-2500,-2500.,25,25], #,
+                    [2500,2500,-20,6], #,
+                    [2000,-2500,-10,-10]])
 
     M, dm = qs.shape;
     N ,dn = ps.shape;
 
 
-    IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
+    IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
 
     Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
 
     constraints = []
     def distance_constraint_sensors_to_targets(ps_optim):
         ps_optim = ps_optim.reshape(N,dn)
-        difference = (qs[jnp.newaxis, :,:] - ps_optim[:, jnp.newaxis, :])
+        difference = (qs[jnp.newaxis, :,:dm//2] - ps_optim[:, jnp.newaxis, :])
         distance = jnp.sqrt(jnp.sum(difference ** 2, -1))
 
         return distance.ravel()
@@ -143,15 +144,15 @@ if __name__ == "__main__":
         print("Obj Init",objective(ps))
 
 
-        SLSQP = minimize(fun=objective, x0=ps.ravel(),method="SLSQP",constraints=constraints,options={"maxiter":10000,"disp":True},jac=jac,hess=hess)
-        print(SLSQP)
-        ps_optim = SLSQP.x.reshape(N,dn)
+        solver = minimize(fun=objective, x0=ps.ravel(),method="SLSQP",constraints=constraints,options={"maxiter":10000,"disp":True},jac=jac,hess=hess)
+        print(solver)
+        ps_optim = solver.x.reshape(N,dn)
         # ps = ps_optim
 
         J = IM_fn(radar_states=ps_optim, target_states=qs)
         print("Matrix Rank: ",jnp.linalg.matrix_rank(J))
-        if f_best > SLSQP.fun:
-            f_best = SLSQP.fun
+        if f_best > solver.fun:
+            f_best = solver.fun
             ps_best = ps_optim
 
         print("\n")
@@ -199,11 +200,11 @@ if __name__ == "__main__":
     axes[0].plot([],[],"m--",label="Target Boundary")
     axes[0].plot(ps_best[:,0],ps_best[:,1],"ro",label="Radar")
     axes[0].plot(ps[:,0],ps[:,1],"rX",label="Radar Init")
-    axes[0].set_title(f"Best Log |J| = -{np.round(best_obj,5)}")
+    axes[0].set_title(f"Best Log |J| = {-np.round(best_obj,5)}")
     axes[0].legend()
 
-    qx, qy, logdet_grid = FIM_2D_Visualization(ps=ps_best, qs=qs,
-                                            Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,c=c, B=B,alpha=alpha,
+    qx, qy, logdet_grid = FIM_2D_Visualization(ps=ps_best, qs=qs[:,:dm//2],
+                                            Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,c=c,fc=fc, sigmaW=sigmaW,
                                             N=2500,space=1000)
 
     CS = axes[1].contourf(qx, qy, logdet_grid, levels=30)
