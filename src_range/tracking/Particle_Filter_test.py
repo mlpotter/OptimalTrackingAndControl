@@ -83,28 +83,25 @@ if __name__ == "__main__":
     np.random.seed(123)
 
     c = 299792458
-    fc = 1e9;
+    fc = 1e6;
     Gt = 2000;
     Gr = 2000;
     lam = c / fc
     rcs = 1;
     L = 1;
-    alpha = (jnp.pi)**2 / 3
-    B = 0.05 * 10**5
+    # alpha = (jnp.pi)**2 / 3
+    # B = 0.05 * 10**5
 
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 100
+    R = 1000
 
-    SCNR = -20
-    CNR = -10
-
-    coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3 / (R ** 4)
     Pt = 10000
-    _, _, _, s = NoiseParams(Pt * coef, SCNR, CNR=CNR)
+    K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
+    Pr = K / (R ** 4)
 
-    print("Transmit Power: ", Pt)
-    print("Radar Return (RCS)",coef*Pt)
-    print("Spread: ", s ** 2)
+    # get the power of the noise of the signal
+    SNR=0
+
 
     # Generic experiment
     T = 0.01
@@ -112,7 +109,7 @@ if __name__ == "__main__":
     TN = 1000
     N = 4
     photo_dump = os.path.join("tmp_images")
-    gif_filename = f"pf_track_{SCNR}.gif"
+    gif_filename = f"pf_track_{SNR}.gif"
     gif_savepath = os.path.join("..", "..", "images")
     remove_photo_dump = True
     every_other_frame = 25
@@ -131,8 +128,12 @@ if __name__ == "__main__":
 
     sigmaQ = np.sqrt(10 ** (3));
     sigmaV = np.sqrt(5)
+    sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
 
     print("SigmaQ (state noise)={}".format(sigmaQ))
+    print("Transmit Power: ", Pt)
+    print("Radar Return (RCS)",Pr)
+    print("Noise Power: ", sigmaW**2)
 
     # A_single = jnp.array([[1., 0, 0, T, 0, 0],
     #                       [0, 1., 0, 0, T, 0],
@@ -170,12 +171,12 @@ if __name__ == "__main__":
 
     # Generate the trajectory and measurements to trajectory: X_1:k, Y_1:k
     key, XT, YT = generate_range_samples(key, qs, ps, A=A, Q=Q,
-                                   Gt=Gt,Gr=Gr,Pt=Pt,lam=lam,rcs=rcs,L=L,c=c,B=B,alpha=alpha,sigmaV=sigmaV,
+                                   Gt=Gt,Gr=Gr,Pt=Pt,lam=lam,rcs=rcs,L=L,c=c,fc=fc,sigmaW=sigmaW,sigmaV=sigmaV,
                                    TN=TN)
 
     key, subkey = random.split(key)
     m0 = qs.at[:, dm//2:].add(5);
-    m0 = m0.at[:, :dm//2].add(-20)
+    m0 = m0.at[:, :dm//2].add(0)
 
     # P0_singular = jnp.diag(jnp.array([50, 50, 50, 50, 50, 50]));
     P0_singular = jnp.diag(jnp.array([50, 50, 50, 50]));
@@ -200,7 +201,7 @@ if __name__ == "__main__":
     Vs = jnp.zeros((TN, N * M * (dm//2 + 1)))
     heights = jnp.zeros((TN, M))
     Vnext_parallel = vmap(RangeVelocityMeasure, in_axes=(0, None))
-    weight_update_partial = partial(weight_update,Pt=Pt,Gt=Gt,Gr=Gr,lam=lam,rcs=rcs,L=L,c=c,B=B,alpha=alpha,sigmaV=sigmaV,M=M,N=N,dm=dm,dn=dn)
+    weight_update_partial = partial(weight_update,Pt=Pt,Gt=Gt,Gr=Gr,lam=lam,rcs=rcs,L=L,c=c,fc=fc,sigmaW=sigmaW,sigmaV=sigmaV,M=M,N=N,dm=dm,dn=dn)
     for t in tqdm(range(0, TN)):
         # get the measurement  y_k+1
         ynext = YT[t].reshape(-1, 1)
@@ -264,7 +265,7 @@ if __name__ == "__main__":
     plt.title("States")
     plt.ylabel("RMSE")
     plt.xlabel("time step")
-    plt.savefig(os.path.join(gif_savepath, f"pf_rmse_{SCNR}.png"))
+    plt.savefig(os.path.join(gif_savepath, f"pf_rmse_{SNR}.png"))
     plt.close()
 
     # # Dummy plots for creating the legend

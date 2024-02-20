@@ -40,7 +40,7 @@ def RangeVelocityMeasure(qs, ps):
 
 
 def generate_range_samples(key, XT, PT, A, Q,
-                     Gt,Gr,Pt,lam,rcs,L,c,B,alpha,sigmaV,
+                     Gt,Gr,Pt,lam,rcs,L,c,fc,sigmaW,sigmaV,
                      TN):
     _, subkey = jax.random.split(key)
 
@@ -61,7 +61,7 @@ def generate_range_samples(key, XT, PT, A, Q,
 
     # coef of noise for RANGE measurements
     K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
-    C = c**2 / (alpha*B**2) * 1/K
+    C = c**2 * sigmaW**2 / (fc**2 * 8 * jnp.pi**2) * 1/K
 
     key, subkey = random.split(key)
 
@@ -76,7 +76,7 @@ def generate_range_samples(key, XT, PT, A, Q,
         # noise for the ranges
         key, subkey = random.split(key)
         range_measures = YT.reshape(M*N,(nx//2 + 1))[:,:1].ravel()
-        rr = jax.random.multivariate_normal(subkey, mean=range_measures, cov=jnp.eye(M*N)*C*jnp.diag(range_measures**4), shape=())
+        rr = jax.random.multivariate_normal(subkey, mean=jnp.zeros(M*N,), cov=jnp.eye(M*N)*C*jnp.diag(range_measures**4), shape=())
         rv = RV[k,:].reshape(M*N,nx//2)
         rr = rr.reshape(M*N,1)
         YT_noise = YT.reshape(M*N,(nx//2+1)) + jnp.concatenate((rr,rv),axis=-1)
@@ -105,7 +105,7 @@ def optimal_importance_dist_sample(key, Xprev, A, Q):
 
 
 
-def weight_update(Wprev, Vnext,ynext,Pt,Gt,Gr,lam,rcs,L,c,B,alpha,sigmaV,M,N,dm,dn):
+def weight_update(Wprev, Vnext,ynext,Pt,Gt,Gr,lam,rcs,L,c,fc,sigmaW,sigmaV,M,N,dm,dn):
 
     ynext = ynext.reshape(M*N,dm//2 + 1)
     velocity_measures = Vnext.reshape(-1, M * N, (dm // 2 + 1))[:, :, 1:]
@@ -117,10 +117,10 @@ def weight_update(Wprev, Vnext,ynext,Pt,Gt,Gr,lam,rcs,L,c,B,alpha,sigmaV,M,N,dm,
                                         #cov=jnp.eye((dm // 2)) * sigmaV**2).prod(axis=-1)
 
     # coef of noise for RANGE measurements
-    K = Pt * Gt * Gr * lam ** 2 * rcs / (4 * np.pi) ** 3 / L
-    C = c ** 2 / (alpha * B ** 2) * 1 / K
+    K = Pt * Gt * Gr * lam**2 * rcs / (4*np.pi)**3 / L
+    C = c**2 * sigmaW**2 / (fc**2 * 8 * jnp.pi**2) * 1/K
 
-    range_pdf = vmap(lambda ranges: jax.scipy.stats.multivariate_normal.pdf(ynext[:,:1].ravel(),mean=ranges.ravel(),cov=jnp.diag(ranges.ravel())**4*C),in_axes=(0,))
+    range_pdf = vmap(lambda ranges: jax.scipy.stats.multivariate_normal.pdf(ynext[:,:1].ravel(),mean=ranges.ravel(),cov=jnp.diag(ranges.ravel()**4)*C),in_axes=(0,))
 
     range_pdf = range_pdf(range_measures)
 

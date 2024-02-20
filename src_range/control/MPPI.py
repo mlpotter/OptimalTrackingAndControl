@@ -6,7 +6,7 @@ config.update("jax_enable_x64", True)
 import jax
 import jax.numpy as jnp
 from jax import jit
-from functools import partial
+from jax.tree_util import Partial as partial
 from jax import vmap
 
 from src_range.control.Sensor_Dynamics import state_multiple_update
@@ -70,7 +70,19 @@ def MPPI_ptb(stds,N, time_steps, num_traj, key):
 
 # @jit
 @partial(jit,static_argnames=['score_fn'])
-def MPPI_scores(score_fn,ps,qs,U_MPPI,chis,time_step_sizes,A, Q, Js,paretos,Pt, Gt, Gr, L, lam, rcs,s,gamma):
+def Single_MPPI_scores(score_fn,radar_states,target_states,U_MPPI,chis,time_step_sizes,A,J,gamma):
+    # the lower the value, the better
+    score_fn_partial = partial(score_fn,chis=chis, radar_states=radar_states, target_states=target_states, time_step_sizes=time_step_sizes,
+                                            A=A,J=J,
+                                            gamma=gamma)
+    MPPI_score_fn = vmap(score_fn_partial)
+
+    scores = MPPI_score_fn(U_MPPI)
+
+    return scores
+
+@partial(jit,static_argnames=['score_fn'])
+def Multi_MPPI_scores(score_fn,ps,qs,U_MPPI,chis,time_step_sizes,A, Q, Js,paretos,Pt, Gt, Gr, L, lam, rcs,s,gamma):
     # the lower the value, the better
     score_fn_partial = partial(score_fn,chis=chis, ps=ps, qs=qs, time_step_sizes=time_step_sizes,
                                             A=A,Q=Q,Js=Js,paretos=paretos,

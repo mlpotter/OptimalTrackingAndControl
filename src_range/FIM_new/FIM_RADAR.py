@@ -71,6 +71,8 @@ def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,fc,c
     M,dm = target_states.shape
 
     radar_states = jnp.concatenate((radar_states,jnp.zeros((N,1))),-1)
+    radar_states = radar_states[:,:dm//2]
+
     target_positions = target_states[:,:dm//2]
 
     Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
@@ -103,10 +105,13 @@ def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,fc,c
     return J
 
 # @jit
-def Single_FIM_Radar(radar_states,target_states,Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaW):
+def Single_FIM_Radar(radar_states,target_states,Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaW,J=None):
     N,dn= radar_states.shape
     M,dm = target_states.shape
 
+    radar_states = jnp.concatenate((radar_states,jnp.zeros((N,1))),-1)
+
+    radar_states = radar_states[:,:dm//2]
     target_positions = target_states[:,:dm//2]
 
     d = (target_positions[jnp.newaxis,:,:] - radar_states[:,jnp.newaxis,:])
@@ -177,7 +182,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
             for t in jnp.arange(1,horizon+1):
                 # iterate through each FIM corresponding to a target
 
-                J = IM_fn(ps_trajectory[:,t],target_states,J)
+                J = IM_fn(radar_states=ps_trajectory[:,t],target_states=target_states,J=J)
 
                 _,logdet = jnp.linalg.slogdet(J)
                 multi_FIM_obj += gamma**(t-1) * logdet

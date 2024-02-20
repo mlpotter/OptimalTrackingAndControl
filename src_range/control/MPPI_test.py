@@ -8,7 +8,7 @@ from jaxopt import ScipyMinimize
 
 
 
-from src_range.FIM.FIM_RADAR import JU_FIM_D_Radar,Multi_FIM_Logdet_decorator_MPC,JU_FIM_radareqn_target_logdet
+from src_range.FIM_new.FIM_RADAR import Single_FIM_Radar,Multi_FIM_Logdet_decorator_MPC
 
 import matplotlib
 matplotlib.use('Agg')
@@ -46,45 +46,38 @@ if __name__ == "__main__":
     frame_skip = 1
     tail_size = 5
     plot_size = 15
-    T = 0.05
+    T = 0.1
     NT = 115
     MPPI_FLAG = True
     PRUNE_FLAG = False
     MPPI_VISUALIZE = True
     MPPI_ITER_VISUALIZE = True
+    method = "Single_FIM_3D_action"
 
     # ==================== RADAR CONFIGURATION ======================== #
-    speedoflight = 299792458
+    c = 299792458
     fc = 1e9;
     Gt = 2000;
     Gr = 2000;
-    lam = speedoflight / fc
+    lam = c / fc
     rcs = 1;
     L = 1;
+    alpha = (jnp.pi)**2 / 3
+    B = 0.05 * 10**5
 
-    # calculate Pt such that I achieve SNR=x at distance R=y
     # calculate Pt such that I achieve SNR=x at distance R=y
     R = 100
 
-    K = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
-    coef = K / (R ** 4)
-
-
-    SCNR = -20
-    CNR = -10
     Pt = 10000
-    Amp, Ma, zeta, s = NoiseParams(Pt * coef, SCNR, CNR=CNR)
-    # coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi)** 3 / (R ** 4)
+    K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
+    Pr = K / (R ** 4)
 
-    print("Power Spread: ",s**2)
-    print("Power Return (RCS): ",coef*Pt)
-    print("K",K)
+    # get the power of the noise of the signal
+    SNR=0
 
-    print("Pt (peak power)={:.9f}".format(Pt))
-    print("lam ={:.9f}".format(lam))
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
-    time_steps = 10
+    time_steps = 20
     R_sensors_to_targets = 5.
     R_sensors_to_sensors = 1.5
     time_step_size = T
@@ -115,11 +108,21 @@ if __name__ == "__main__":
                     [10,10,z_elevation,10,10,0],
                     [20,20,z_elevation,5,-5,0]])
 
-    M, d = qs.shape;
-    N = len(ps);
+    M, dm = qs.shape;
+    N , dn = ps.shape;
+
+    sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
+    # coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi)** 3 / (R ** 4)
+
+    print("Power Spread: ",sigmaW**2)
+    print("Power Return (RCS): ",Pr)
+    print("K",K)
+
+    print("Pt (peak power)={:.9f}".format(Pt))
+    print("lam ={:.9f}".format(lam))
 
     # ============================ MPC Settings =====================================#
-    gamma = 0.9
+    gamma = 0.99
     paretos = jnp.ones((M,)) * 1 / M  # jnp.array([1/3,1/3,1/3])
     assert len(paretos) == M, "Pareto weights not equal to number of targets!"
     assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
@@ -148,10 +151,16 @@ if __name__ == "__main__":
 
     nx = Q.shape[0]
 
-    Js = [jnp.eye(d) for m in range(M)]
+    J = jnp.eye(dm*M) #jnp.stack([jnp.eye(d) for m in range(M)])
 
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(JU_FIM_radareqn_target_logdet)
+    IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
+    # IM_fn(ps,qs[[0],:],Js=Js)
+    IM_fn(ps,qs)
+
+    # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
+
+    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
 
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     time_step_sizes = jnp.tile(time_step_size, (N, 1))
@@ -178,7 +187,7 @@ if __name__ == "__main__":
         MPPI_iter_start = time()
         print(f"\n Step {k} MPPI Iteration: ")
         qs_previous = m0
-        m0 = (A @ m0.reshape(-1, 1)).reshape(M, d)
+        m0 = (A @ m0.reshape(-1, 1)).reshape(M, dm)
 
         best_mppi_iter_score = -np.inf
         for mppi_iter in range(MPPI_iterations):
@@ -205,10 +214,8 @@ if __name__ == "__main__":
             #
             #      # plt.plot(P_MPPI.squeeze()[:,0,:,0].T,P_MPPI.squeeze()[:,0,:,1].T)
             mppi_score_start = time()
-            scores_MPPI = MPPI_scores(Multi_FIM_Logdet, ps, m0, U_MPPI, chis, time_step_sizes,
-                                      A=A_single,Q=Q_single,Js=Js,
-                                      paretos=paretos
-                                      ,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s,
+            scores_MPPI = Single_MPPI_scores(Multi_FIM_Logdet, ps, m0, U_MPPI, chis, time_step_sizes,
+                                      A=A,J=J,
                                       gamma=gamma)
             mppi_score_end = time()
             # print("MPPI Score Time: ", mppi_score_end - mppi_start)
@@ -296,11 +303,10 @@ if __name__ == "__main__":
         chis = Sensor_Chis[:,1]
         Sensor_Positions = np.asarray(Sensor_Positions)
 
-        Js = [
-            JU_FIM_D_Radar(ps=ps, q=m0[[i], :], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single,
-                           J=Js[i],
-                           s=s) for i in range(len(Js))]        # print(jnp.trace(J))
-        FIMs.append(np.sum([jnp.linalg.slogdet(Js[m])[1] for m in range(len(Js))]))
+        J = IM_fn(radar_states=ps,target_states=m0,J=J) #[JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],s=s) for i in range(len(Js))]
+
+         # print(jnp.trace(J))
+        FIMs.append(jnp.linalg.slogdet(J)[1].ravel())
         file = os.path.join("tmp_images",f"JU_test_target_movement{k}.png")
     #
         if ((k+1) % frame_skip) == 0:

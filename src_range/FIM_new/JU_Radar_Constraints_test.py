@@ -76,16 +76,6 @@ if __name__ == "__main__":
 
     SNR = 0
     # calculate Pt such that I achieve SNR=x at distance R=y
-    sigmaW = jnp.sqrt(Pr / (10**(SNR/10)))
-
-    # C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
-
-    # print("Power Return (RCS): ",coef*Pt)
-    print("K",K)
-
-    print("Pt (peak power)={:.9f}".format(Pt))
-    print("Noise Power={:.5f}".format(sigmaW**2))
-    print("lam ={:.9f}".format(lam))
 
     # ==================== SENSOR CONSTRAINTS ======================== #
     R_sensors_to_targets = 750.
@@ -102,6 +92,18 @@ if __name__ == "__main__":
 
     M, dm = qs.shape;
     N ,dn = ps.shape;
+
+    sigmaW = jnp.sqrt(M*Pr / (10**(SNR/10)))
+
+    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
+
+    # print("Power Return (RCS): ",coef*Pt)
+    print("K",K)
+    print("C",C)
+    print("Pt (peak power)={:.9f}".format(Pt))
+    print("Noise Power={:.5f}".format(sigmaW**2))
+    print("lam ={:.9f}".format(lam))
+
 
 
     IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
