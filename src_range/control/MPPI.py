@@ -53,15 +53,20 @@ def MPPI(U_nominal,chis_nominal,U_ptb,ps,time_step_sizes,limits):
 
     return U_MPPI,ps_trajectory,chis_trajectory,U_nominal,nominal_trajectory,nominal_chis
 
-def MPPI_ptb(stds,N, time_steps, num_traj, key):
+def MPPI_ptb(stds,N, time_steps, num_traj, key,method="beta"):
     v_min,v_max = stds[0]
     av_min,av_max = stds[1]
     # U_velocity = jax.random.uniform(key, shape=(num_traj, N, time_steps,1), minval=v_min, maxval=v_max)
     # U_angular_velocity = jax.random.uniform(key, shape=(num_traj, N, time_steps,1), minval=av_min,
     #                                         maxval=av_max)
 
-    U_velocity = jax.random.beta(key,.5,.5,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
-    U_angular_velocity = jax.random.beta(key, 0.5,0.5,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
+    if method == "beta":
+        U_velocity = jax.random.beta(key,.5,.5,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
+        U_angular_velocity = jax.random.beta(key, 0.5,0.5,shape=(num_traj, N, time_steps,1)) * (av_max - av_min) + av_min
+    elif method=="uniform":
+        U_velocity = jax.random.uniform(key,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
+        U_angular_velocity = jax.random.uniform(key,shape=(num_traj, N, time_steps,1)) * (av_max - av_min) + av_min
+
     U_ptb = jnp.concatenate((U_velocity, U_angular_velocity), axis=-1)
 
     # U_ptb = jax.random.normal(key, shape=(num_traj, N, 2, time_steps)) * stds.reshape(1, 1, 2, 1)

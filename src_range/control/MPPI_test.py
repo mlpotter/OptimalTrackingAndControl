@@ -8,7 +8,7 @@ from jaxopt import ScipyMinimize
 
 
 
-from src_range.FIM_new.FIM_RADAR import Single_FIM_Radar,Multi_FIM_Logdet_decorator_MPC
+from src_range.FIM_new.FIM_RADAR import Single_JU_FIM_Radar,Single_FIM_Radar,Multi_FIM_Logdet_decorator_MPC
 
 import matplotlib
 matplotlib.use('Agg')
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     tail_size = 5
     plot_size = 15
     T = 0.1
-    NT = 115
+    NT = 100
     MPPI_FLAG = True
     PRUNE_FLAG = False
     MPPI_VISUALIZE = True
@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     # ==================== RADAR CONFIGURATION ======================== #
     c = 299792458
-    fc = 1e9;
+    fc = 1e6;
     Gt = 2000;
     Gr = 2000;
     lam = c / fc
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     B = 0.05 * 10**5
 
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 100
+    R = 1000
 
     Pt = 10000
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
@@ -89,12 +89,14 @@ if __name__ == "__main__":
     # ==================== MPPI CONFIGURATION ================================= #
     limits = jnp.array([[max_velocity, max_angle_velocity], [min_velocity, min_angle_velocity]])
     stds = jnp.array([[-5,5],
-                      [-5 * jnp.pi/180, 5 * jnp.pi/180]])
+                      [-50* jnp.pi/180, 50 * jnp.pi/180]])
     v_init = 0
     av_init = 0
     spread = 1
     num_traj = 100
-    MPPI_iterations = 25
+    MPPI_iterations = 100
+
+    u_ptb_method = "beta"
 
     N = 6
     from copy import deepcopy
@@ -122,12 +124,13 @@ if __name__ == "__main__":
     print("lam ={:.9f}".format(lam))
 
     # ============================ MPC Settings =====================================#
-    gamma = 0.99
+    gamma = 0.95
     paretos = jnp.ones((M,)) * 1 / M  # jnp.array([1/3,1/3,1/3])
     assert len(paretos) == M, "Pareto weights not equal to number of targets!"
     assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
 
     sigmaQ = np.sqrt(10 ** -1)
+    sigmaV = jnp.sqrt(9)
 
     A_single = jnp.array([[1., 0, 0, T, 0, 0],
                    [0, 1., 0, 0, T, 0],
@@ -154,9 +157,10 @@ if __name__ == "__main__":
     J = jnp.eye(dm*M) #jnp.stack([jnp.eye(d) for m in range(M)])
 
 
-    IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
+    # IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
     # IM_fn(ps,qs[[0],:],Js=Js)
-    IM_fn(ps,qs)
+    IM_fn = partial(Single_JU_FIM_Radar,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
+    IM_fn(ps,qs,J)
 
     # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
 
@@ -195,7 +199,7 @@ if __name__ == "__main__":
             key, subkey = jax.random.split(key)
 
             mppi_start = time()
-            U_ptb = MPPI_ptb(stds,N, time_steps, num_traj, key)
+            U_ptb = MPPI_ptb(stds,N, time_steps, num_traj, key,method=u_ptb_method)
             U_MPPI,P_MPPI,CHI_MPPI, _,_,_ = MPPI(U_nominal=U_Nom, chis_nominal=chis,
                                                                U_ptb=U_ptb,ps=ps,
                                                                time_step_sizes=time_step_sizes, limits=limits)

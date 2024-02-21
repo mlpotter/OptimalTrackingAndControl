@@ -25,6 +25,9 @@ def RangeVelocityMeasure(qs, ps):
     M, dm = qs.shape
     N, dn = ps.shape
     # ps = jnp.concatenate((ps, jnp.array([4, 4, -4, 8]).reshape(N, 1)), -1)  # jnp.zeros((N,1))),-1)
+    ps = jnp.concatenate((ps,jnp.zeros((N,1))),-1)
+    ps = ps[:,:dm//2]
+
     vs = jnp.tile(qs[:,dm//2:],(N,1,1))
     qs = qs[:,:dm//2]
 

@@ -44,7 +44,7 @@ if __name__ == "__main__":
     method = 'Single_FIM_2D_noaction'
 
     # Save frames as a GIF
-    pdf_filename = "radar_optimal_RICE.pdf"
+    pdf_filename = "radar_optimal_range.pdf"
     pdf_savepath = os.path.join("..", "..", "images")
     photo_dump = os.path.join("tmp_images")
     remove_photo_dump = True
@@ -52,11 +52,11 @@ if __name__ == "__main__":
 
 
     Restarts = 10
-    N = 5
+    N = 6
 
     # ==================== RADAR CONFIGURATION ======================== #
     c = 299792458
-    fc = 1e9;
+    fc = 1e6;
     Gt = 2000;
     Gr = 2000;
     lam = c / fc
@@ -70,11 +70,11 @@ if __name__ == "__main__":
 
 
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 100
+    R = 1000
     Pr = K / (R ** 4)
 
 
-    SNR = 0
+    SNR = -20
     # calculate Pt such that I achieve SNR=x at distance R=y
 
     # ==================== SENSOR CONSTRAINTS ======================== #
@@ -86,9 +86,9 @@ if __name__ == "__main__":
     #
     ps = jax.random.uniform(key, shape=(N, 2), minval=-2000, maxval=2000)
     qs = jnp.array([
-                    [-250,-250.,25,25], #,
-                    [250,250,-20,6], #,
-                    [200,-250,-10,-10]])
+                    [-2500,-2500.,25,25], #,
+                    [2500,2500,-20,6], #,
+                    [2000,-2500,-10,-10]])
 
     M, dm = qs.shape;
     N ,dn = ps.shape;
