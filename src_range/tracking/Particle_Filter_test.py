@@ -47,7 +47,7 @@ def create_frame(t, Xnext, XT, ps, m0, ws, neffs, vs, heights, axes=None):
     axes[2].set_xlabel("t")
 
     ranges = axes[3].plot(vs, 'o-')
-    axes[3].set_ylabel("Radar Measure")
+    axes[3].set_ylabel("Range Measure")
     axes[3].set_xlabel("t")
 
     height = axes[4].plot(heights, marker='o', color="y", label='_nolegend_', linestyle="-")
@@ -98,7 +98,6 @@ if __name__ == "__main__":
     Pt = 10000
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
     Pr = K / (R ** 4)
-
     # get the power of the noise of the signal
     SNR=0
 
@@ -129,11 +128,13 @@ if __name__ == "__main__":
     sigmaQ = np.sqrt(10 ** (3));
     sigmaV = np.sqrt(5)
     sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
+    C = c**2 * sigmaW**2 / (fc**2 * 8 * jnp.pi**2) * 1/K
 
     print("SigmaQ (state noise)={}".format(sigmaQ))
     print("Transmit Power: ", Pt)
     print("Radar Return (RCS)",Pr)
     print("Noise Power: ", sigmaW**2)
+    print("Scaling Factor: ",C)
 
     # A_single = jnp.array([[1., 0, 0, T, 0, 0],
     #                       [0, 1., 0, 0, T, 0],
@@ -176,7 +177,7 @@ if __name__ == "__main__":
 
     key, subkey = random.split(key)
     m0 = qs.at[:, dm//2:].add(5);
-    m0 = m0.at[:, :dm//2].add(0)
+    m0 = m0.at[:, :dm//2].add(5)
 
     # P0_singular = jnp.diag(jnp.array([50, 50, 50, 50, 50, 50]));
     P0_singular = jnp.diag(jnp.array([50, 50, 50, 50]));

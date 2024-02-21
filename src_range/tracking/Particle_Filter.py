@@ -76,7 +76,7 @@ def generate_range_samples(key, XT, PT, A, Q,
         # noise for the ranges
         key, subkey = random.split(key)
         range_measures = YT.reshape(M*N,(nx//2 + 1))[:,:1].ravel()
-        rr = jax.random.multivariate_normal(subkey, mean=jnp.zeros(M*N,), cov=jnp.eye(M*N)*C*jnp.diag(range_measures**4), shape=())
+        rr = jax.random.multivariate_normal(subkey, mean=jnp.zeros(M*N,),cov=C*jnp.diag(range_measures**4), shape=())
         rv = RV[k,:].reshape(M*N,nx//2)
         rr = rr.reshape(M*N,1)
         YT_noise = YT.reshape(M*N,(nx//2+1)) + jnp.concatenate((rr,rv),axis=-1)
