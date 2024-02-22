@@ -104,7 +104,7 @@ def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,fc,c
 
     return J
 
-# @jit
+@jit
 def Single_FIM_Radar(radar_states,target_states,Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaW,J=None):
     N,dn= radar_states.shape
     M,dm = target_states.shape
@@ -138,7 +138,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
     if method=="Multiple_FIM_2D_action":
         @jit
-        def Multi_FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,Js,paretos,
+        def FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,Js,paretos,
                              A,
                              gamma):
             horizon = U.shape[1]
@@ -167,7 +167,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
     elif method=="Single_FIM_3D_action":
         @jit
-        def Multi_FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,J,
+        def FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,J,
                              A,
                              gamma):
             horizon = U.shape[1]
@@ -178,6 +178,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
             multi_FIM_obj = 0
 
+            total = 0
             # iterate through time step
             for t in jnp.arange(1,horizon+1):
                 # iterate through each FIM corresponding to a target
@@ -186,16 +187,17 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
                 _,logdet = jnp.linalg.slogdet(J)
                 multi_FIM_obj += gamma**(t-1) * logdet
+                total += gamma**(t-1)
 
 
                 target_states = (A @ target_states.reshape(-1, M*dm).T).T.reshape(M, dm)
 
-            return -multi_FIM_obj
+            return -multi_FIM_obj/total
 
 
     elif method=="Single_FIM_2D_noaction":
         @jit
-        def Multi_FIM_Logdet(radar_states, target_states):
+        def FIM_Logdet(radar_states, target_states):
 
             M, dm = target_states.shape
             N, dn = radar_states.shape
@@ -206,7 +208,7 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
             return -logdet
 
 
-    return Multi_FIM_Logdet
+    return FIM_Logdet
 
 @partial(jit,static_argnames=['N',"space"])
 def FIM_2D_Visualization(ps,qs,

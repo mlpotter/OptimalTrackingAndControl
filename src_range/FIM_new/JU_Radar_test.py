@@ -30,8 +30,9 @@ if __name__ == "__main__":
 
 
 
-    seed = 555
+    seed = 123
     key = jax.random.PRNGKey(seed)
+    np.random.seed(123)
 
     # Experiment Choice
     update_steps = 0
@@ -50,12 +51,12 @@ if __name__ == "__main__":
     tail_size = 5
     plot_size = 15
     T = .1
-    NT = 250
-    N = 5
+    NT = 115
+    N = 6
 
     # ==================== RADAR CONFIGURATION ======================== #
     c = 299792458
-    fc = 1e9;
+    fc = 1e6;
     Gt = 2000;
     Gr = 2000;
     lam = c / fc
@@ -64,8 +65,9 @@ if __name__ == "__main__":
     alpha = (jnp.pi)**2 / 3
     B = 0.05 * 10**5
 
+
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 100
+    R = 1000
 
     Pt = 10000
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
@@ -73,23 +75,11 @@ if __name__ == "__main__":
 
     # get the power of the noise of the signal
     SNR=0
-    sigmaW = jnp.sqrt(Pr/ (10**(SNR/10)))
 
 
-
-    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
-
-
-
-    print("Power Return (RCS): ",Pr)
-    print("Noise Power: ",sigmaW**2)
-    print("K",K)
-
-    print("Pt (peak power)={:.9f}".format(Pt))
-    print("lam ={:.9f}".format(lam))
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
-    time_steps = 15
+    time_steps = 20
     R_sensors_to_targets = 5.
     R_sensors_to_sensors = 1.5
     time_step_size = T
@@ -111,16 +101,16 @@ if __name__ == "__main__":
     #                 [10,10,10,10],
     #                 [20,20,5,-5]])
     z_elevation=10
-    qs = jnp.array([[0.0, -0.0, z_elevation,25., 20,0], #,#,
-                    [-50.4,30.32, z_elevation,-20,-10,0], #,
-                    [10,10, z_elevation,10,10,0],
-                    [20,20, z_elevation,5,-5,0]])
+    qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
+                    [-50.4,30.32,z_elevation,-20,-10,0], #,
+                    [10,10,z_elevation,10,10,0],
+                    [20,20,z_elevation,5,-5,0]])
 
     M, dm = qs.shape;
     N, dn = ps.shape;
 
     # ======================== MPC Assumptions ====================================== #
-    gamma = 0.9
+    gamma = 0.95
     # paretos = jnp.ones((M,)) * 1 / M  # jnp.array([1/3,1/3,1/3])
     # paretos = jnp.array([1/3,1/3,1/3,0,0])
 
@@ -130,8 +120,19 @@ if __name__ == "__main__":
 
     sigmaQ = jnp.sqrt(10 ** 2);
     sigmaV = jnp.sqrt(9)
+    sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
+
+    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
 
     print("SigmaQ (state noise)={}".format(sigmaQ))
+
+    print("Power Return (RCS): ",Pr)
+    print("Noise Power: ",sigmaW**2)
+    print("K",K)
+
+    print("Pt (peak power)={:.9f}".format(Pt))
+    print("lam ={:.9f}".format(lam))
+    print("C=",C)
 
     # A_single = jnp.array([[1., 0, T, 0],
     #                       [0, 1., 0, T],
@@ -233,10 +234,11 @@ if __name__ == "__main__":
 
         # m0  = ps
 
-        J = IM_fn(ps,m0,J) #[JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],s=s) for i in range(len(Js))]
+        J = IM_fn(radar_states=ps,target_states=m0,J=J) #[JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],s=s) for i in range(len(Js))]
 
         # print([jnp.linalg.slogdet(Ji)[1].item() for Ji in Js])
         J_list.append(jnp.linalg.slogdet(J)[1].ravel())
+
         print("FIM (higher is better) ",np.sum(J_list[-1]))
 
         save_time = time()
@@ -246,7 +248,8 @@ if __name__ == "__main__":
             axes[0].plot(qs_previous[:,0], qs_previous[:,1], 'g.',label="_nolegend_")
             axes[0].plot(m0[:,0], m0[:,1], 'go',label="Targets")
             axes[0].plot(ps_init[:,0], ps_init[:,1], 'md',label="Sensor Init")
-            axes[0].plot(ps[:,0], ps[:,1], 'rx',label="Sensors")
+            axes[0].plot(ps[:,0], ps[:,1], 'rx',label="Sensors Next Position")
+            axes[0].plot(Sensor_Positions[:,0,0], Sensor_Positions[:,0,1], 'r*',label="Sensor Position")
             axes[0].plot(Sensor_Positions[:,1:,0].T, Sensor_Positions[:,1:,1].T, 'r.-',label="_nolegend_")
             axes[0].plot([],[],"r.-",label="Sensor Planned Path")
 
@@ -263,9 +266,10 @@ if __name__ == "__main__":
             axes[1].scatter(m0[:, 0], m0[:, 1], s=50, marker="o", color="g")
             axes[1].set_title("Instant Time Objective Function Map")
 
-            axes[2].plot(jnp.sum(jnp.array(J_list),axis=1),"b-",label="Total FIM")
+            axes[2].plot(jnp.array(J_list),"b-",label="Total FIM")
             # axes[2].plot(jnp.array(J_list),"r-",label="Individual FIM")
-            axes[2].set_ylabel("Target logdet FIM")
+            axes[2].set_ylabel("Target logdet FIM (Higher is Better)")
+            axes[2].set_title(f"Avg MPPI LogDet FIM={np.round(J_list[-1])}")
             axes[2].set_xlabel("Time Step")
 
 

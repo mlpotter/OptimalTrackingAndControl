@@ -8,7 +8,7 @@ from jaxopt import ScipyMinimize
 
 
 
-from src_range.FIM_new.FIM_RADAR import Single_JU_FIM_Radar,Single_FIM_Radar,Multi_FIM_Logdet_decorator_MPC
+from src_range.FIM_new.FIM_RADAR import Single_JU_FIM_Radar,Single_FIM_Radar,Multi_FIM_Logdet_decorator_MPC,FIM_Visualization
 
 import matplotlib
 matplotlib.use('Agg')
@@ -47,12 +47,14 @@ if __name__ == "__main__":
     tail_size = 5
     plot_size = 15
     T = 0.1
-    NT = 100
+    NT = 115
     MPPI_FLAG = True
     PRUNE_FLAG = False
     MPPI_VISUALIZE = True
     MPPI_ITER_VISUALIZE = True
+    MPPI_method = "single"
     method = "Single_FIM_3D_action"
+    N = 6
 
     # ==================== RADAR CONFIGURATION ======================== #
     c = 299792458
@@ -88,21 +90,21 @@ if __name__ == "__main__":
 
     # ==================== MPPI CONFIGURATION ================================= #
     limits = jnp.array([[max_velocity, max_angle_velocity], [min_velocity, min_angle_velocity]])
-    stds = jnp.array([[-5,5],
-                      [-50* jnp.pi/180, 50 * jnp.pi/180]])
+    stds = jnp.array([[-10,10],
+                      [-90* jnp.pi/180, 90 * jnp.pi/180]])
     v_init = 0
     av_init = 0
-    spread = 1
-    num_traj = 100
-    MPPI_iterations = 100
+    temperature = 0.01
+    num_traj = 500
+    MPPI_iterations = 20
 
     u_ptb_method = "beta"
 
-    N = 6
     from copy import deepcopy
     key, subkey = jax.random.split(key)
     #
     ps = jax.random.uniform(key, shape=(N, 2), minval=-100, maxval=100)
+
     ps_init = deepcopy(ps)
     z_elevation = 10
     qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
@@ -115,13 +117,15 @@ if __name__ == "__main__":
 
     sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
     # coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi)** 3 / (R ** 4)
+    C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
 
-    print("Power Spread: ",sigmaW**2)
+    print("Noise Power: ",sigmaW**2)
     print("Power Return (RCS): ",Pr)
     print("K",K)
 
     print("Pt (peak power)={:.9f}".format(Pt))
     print("lam ={:.9f}".format(lam))
+    print("C=",C)
 
     # ============================ MPC Settings =====================================#
     gamma = 0.95
@@ -160,11 +164,14 @@ if __name__ == "__main__":
     # IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
     # IM_fn(ps,qs[[0],:],Js=Js)
     IM_fn = partial(Single_JU_FIM_Radar,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
-    IM_fn(ps,qs,J)
+    IM_fn(ps,qs,J=J)
 
     # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
 
     Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
+
+    MPPI_scores = MPPI_scores_wrapper(Multi_FIM_Logdet,method=MPPI_method)
+
 
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     time_step_sizes = jnp.tile(time_step_size, (N, 1))
@@ -183,7 +190,7 @@ if __name__ == "__main__":
     U_V = jnp.ones((N,time_steps,1)) * v_init
     U_W = jnp.ones((N,time_steps,1)) * av_init
     U_Nom =jnp.concatenate((U_V,U_W),axis=-1)
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
     fig_debug,axes_debug = plt.subplots(1,1,figsize=(10,10))
 
@@ -200,10 +207,12 @@ if __name__ == "__main__":
 
             mppi_start = time()
             U_ptb = MPPI_ptb(stds,N, time_steps, num_traj, key,method=u_ptb_method)
+
+            mppi_rollout_start = time()
             U_MPPI,P_MPPI,CHI_MPPI, _,_,_ = MPPI(U_nominal=U_Nom, chis_nominal=chis,
                                                                U_ptb=U_ptb,ps=ps,
                                                                time_step_sizes=time_step_sizes, limits=limits)
-
+            mppi_rollout_end = time()
             # if PRUNE_FLAG:
             #     differences = P_MPPI.squeeze(3)[:,:,jnp.newaxis] - m0[jnp.newaxis, jnp.newaxis, :,jnp.newaxis, :2]
             #     distances = jnp.sqrt(jnp.sum((differences ** 2), -1))
@@ -218,7 +227,7 @@ if __name__ == "__main__":
             #
             #      # plt.plot(P_MPPI.squeeze()[:,0,:,0].T,P_MPPI.squeeze()[:,0,:,1].T)
             mppi_score_start = time()
-            scores_MPPI = Single_MPPI_scores(Multi_FIM_Logdet, ps, m0, U_MPPI, chis, time_step_sizes,
+            scores_MPPI = MPPI_scores(ps, m0, U_MPPI, chis, time_step_sizes,
                                       A=A,J=J,
                                       gamma=gamma)
             mppi_score_end = time()
@@ -226,7 +235,7 @@ if __name__ == "__main__":
 
             # U = U_MPPI[np.argmax(scores_MPPI)]
             # Positive is better
-            scores_temp = -spread*scores_MPPI
+            scores_temp = -1/(temperature)*scores_MPPI
             # scores_temp  = scores_temp.at[jnp.isnan(scores_temp)].set(-jnp.inf)#jnp.exp(-spread*scores_MPPI)/jnp.sum(jnp.exp(-spread*scores_MPPI))
             # scores_temp = scores_temp.at[jnp.isinf(scores_temp)].set(-jnp.inf)
             # scores_temp = scores_temp.at[jnp.isnan(scores_temp)].set(-jnp.inf)
@@ -318,6 +327,8 @@ if __name__ == "__main__":
             #     axes[0].plot(P_MPPI[:,n,:,0].T,P_MPPI[:,n,:,1].T,'b-',label="__nolegend__")
             axes[0].plot(qs_previous[:,0], qs_previous[:,1], 'g.',label="Target Init Position")
             axes[0].plot(m0[:,0], m0[:,1], 'go',label="Target Position")
+            axes[0].plot(ps_init[:,0], ps_init[:,1], 'md',label="Sensor Init")
+
 
             if MPPI_VISUALIZE:
                 for n in range(N):
@@ -325,17 +336,30 @@ if __name__ == "__main__":
             axes[0].plot(Sensor_Positions.squeeze()[:,0,0], Sensor_Positions.squeeze()[:,0,1], 'r*',label="Sensor Position")
             axes[0].plot(Sensor_Positions.squeeze()[:,1:,0].T, Sensor_Positions.squeeze()[:,1:,1].T, 'r-',label="_nolegend_")
             axes[0].plot([],[],"r.-",label="Sensor Planned Path")
-
             axes[0].set_title(f"k={k}")
-            axes[0].legend(bbox_to_anchor=(0.5, 1.45),loc="upper center")
-            axes[1].plot(FIMs,'ko')
-            axes[1].set_ylabel("LogDet FIM (Higher is Better)")
-            axes[1].set_title(f"Avg MPPI LogDet FIM={np.round(FIMs[-1])}")
+            # axes[0].legend(bbox_to_anchor=(0.5, 1.45),loc="upper center")
+            axes[0].legend(bbox_to_anchor=(0.7, 0.95))
+
+            qx,qy,logdet_grid = FIM_Visualization(ps=ps, qs=m0,
+                                                  Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW,
+                                                  N=1000)
+
+            axes[1].contourf(qx, qy, logdet_grid, levels=20)
+            axes[1].scatter(ps[:, 0], ps[:, 1], s=50, marker="x", color="r")
+            #
+            axes[1].scatter(m0[:, 0], m0[:, 1], s=50, marker="o", color="g")
+            axes[1].set_title("Instant Time Objective Function Map")
+
+            axes[2].plot(jnp.array(FIMs),'ko')
+            axes[2].set_ylabel("LogDet FIM (Higher is Better)")
+            axes[2].set_title(f"Avg MPPI LogDet FIM={np.round(FIMs[-1])}")
             fig.tight_layout()
             fig.savefig(file)
-            axes[0].cla()
-            images.append(file)
 
+            axes[0].cla()
+            axes[1].cla()
+            axes[2].cla()
+            images.append(file)
 
     images = [imageio.imread(file) for file in images]
     imageio.mimsave(os.path.join(gif_savepath,gif_savename),images,duration=0.1)#                              f"../../images/gifs/FIM_Kalman/JU_test_sensor_and_target.gif",images,duration=.1)

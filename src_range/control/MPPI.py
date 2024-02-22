@@ -74,32 +74,40 @@ def MPPI_ptb(stds,N, time_steps, num_traj, key,method="beta"):
     return U_ptb
 
 # @jit
-@partial(jit,static_argnames=['score_fn'])
-def Single_MPPI_scores(score_fn,radar_states,target_states,U_MPPI,chis,time_step_sizes,A,J,gamma):
-    # the lower the value, the better
-    score_fn_partial = partial(score_fn,chis=chis, radar_states=radar_states, target_states=target_states, time_step_sizes=time_step_sizes,
-                                            A=A,J=J,
-                                            gamma=gamma)
-    MPPI_score_fn = vmap(score_fn_partial)
-
-    scores = MPPI_score_fn(U_MPPI)
-
-    return scores
-
-@partial(jit,static_argnames=['score_fn'])
-def Multi_MPPI_scores(score_fn,ps,qs,U_MPPI,chis,time_step_sizes,A, Q, Js,paretos,Pt, Gt, Gr, L, lam, rcs,s,gamma):
-    # the lower the value, the better
-    score_fn_partial = partial(score_fn,chis=chis, ps=ps, qs=qs, time_step_sizes=time_step_sizes,
-                                            A=A,Q=Q,Js=Js,paretos=paretos,
-                                            Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s,
-                                            gamma=gamma)
-    MPPI_score_fn = vmap(score_fn_partial)
-
-    scores = MPPI_score_fn(U_MPPI)
-
-    return scores
 
 
+def MPPI_scores_wrapper(score_fn,method="single"):
+
+
+    if method == "single":
+        @jit
+        def MPPI_scores(radar_states,target_states,U_MPPI,chis,time_step_sizes,A,J,gamma):
+            # the lower the value, the better
+            score_fn_partial = partial(score_fn,chis=chis, radar_states=radar_states, target_states=target_states, time_step_sizes=time_step_sizes,
+                                                    A=A,J=J,
+                                                    gamma=gamma)
+
+            MPPI_score_fn = vmap(score_fn_partial)
+
+            scores = MPPI_score_fn(U_MPPI)
+
+            return scores
+
+    elif method == "multi":
+        @jit
+        def MPPI_scores(ps,qs,U_MPPI,chis,time_step_sizes,A, Q, Js,paretos,Pt, Gt, Gr, L, lam, rcs,s,gamma):
+            # the lower the value, the better
+            score_fn_partial = partial(score_fn,chis=chis, ps=ps, qs=qs, time_step_sizes=time_step_sizes,
+                                                    A=A,Q=Q,Js=Js,paretos=paretos,
+                                                    Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s,
+                                                    gamma=gamma)
+            MPPI_score_fn = vmap(score_fn_partial)
+
+            scores = MPPI_score_fn(U_MPPI)
+
+            return scores
+
+    return MPPI_scores
 def MPPI_visualize(MPPI_trajectories,nominal_trajectory):
     # J_eval = Multi_FIM_Logdet(U, chis, ps, qs, time_step_sizes=time_step_sizes, J=J, A=A, Q=Q, W=W, **key_args)
     fig,axes = plt.subplots(1,1)
