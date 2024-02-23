@@ -182,6 +182,8 @@ if __name__ == "__main__":
     U_lower = jnp.tile(U_lower, jnp.array([N, 1, 1]))
     U_upper = jnp.tile(U_upper, jnp.array([N, 1, 1]))
 
+    state_multiple_update_vmap = vmap(state_multiple_update, (0, 0, 0, 0))
+
     m0 = qs
     images = []; images_mppi = []
     FIMs = []
@@ -306,7 +308,7 @@ if __name__ == "__main__":
 
         # U_BEST =  jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1),axis=0)
         # U_nominal =  jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1),axis=0)
-        _, _, Sensor_Positions, Sensor_Chis = vmap(state_multiple_update, (0, 0, 0, 0))(jnp.expand_dims(ps, 1), U_BEST ,
+        _, _, Sensor_Positions, Sensor_Chis = state_multiple_update_vmap(jnp.expand_dims(ps, 1), U_BEST ,
                                                                        chis, time_step_sizes)
 
         # if k == 0:

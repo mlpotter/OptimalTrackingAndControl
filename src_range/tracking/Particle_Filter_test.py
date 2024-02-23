@@ -99,7 +99,7 @@ if __name__ == "__main__":
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
     Pr = K / (R ** 4)
     # get the power of the noise of the signal
-    SNR=0
+    SNR=-20
 
 
     # Generic experiment
