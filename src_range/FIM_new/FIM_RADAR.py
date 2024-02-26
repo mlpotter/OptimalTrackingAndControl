@@ -65,7 +65,7 @@ def Multiple_JU_FIM_Radar(radar_states,target_state,Js,A,Q,Pt,Gt,Gr,L,lam,rcs,fc
 
 
 @jit
-def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaV,sigmaW):
+def Single_JU_FIM_Radar(radar_states,target_states,J,A,Qinv,Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaV,sigmaW):
 
     N,dn= radar_states.shape
     M,dm = target_states.shape
@@ -75,7 +75,7 @@ def Single_JU_FIM_Radar(radar_states,target_states,J,A,Q,Pt,Gt,Gr,L,lam,rcs,fc,c
 
     target_positions = target_states[:,:dm//2]
 
-    Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
+    # Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
     # # Qinv = jnp.linalg.inv(Q)
     #
     D11 = A.T @ Qinv @ A
@@ -136,16 +136,17 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
     # the lower this value, the better!
 
+
     if method=="Multiple_FIM_2D_action":
         @jit
-        def FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,Js,paretos,
+        def FIM_Logdet(U,chis,radar_states,target_states,time_step_size,Js,paretos,
                              A,
                              gamma):
             horizon = U.shape[1]
             M,dm = target_states.shape
             N,dn = radar_states.shape
 
-            _,_,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,0))(radar_states,U,chis,time_step_sizes)
+            _,_,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,None))(radar_states,U,chis,time_step_size)
 
             multi_FIM_obj = 0
 
@@ -167,14 +168,14 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
 
     elif method=="Single_FIM_3D_action":
         @jit
-        def FIM_Logdet(U,chis,radar_states,target_states,time_step_sizes,J,
+        def FIM_Logdet(U,chis,radar_states,target_states,time_step_size,J,
                              A,
                              gamma):
             horizon = U.shape[1]
             M,dm = target_states.shape
             N,dn = radar_states.shape
 
-            _,_,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,0))(radar_states,U,chis,time_step_sizes)
+            _,_,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,None))(radar_states,U,chis,time_step_size)
 
             multi_FIM_obj = 0
 
@@ -193,6 +194,32 @@ def Multi_FIM_Logdet_decorator_MPC(IM_fn,method="action"):
                 target_states = (A @ target_states.reshape(-1, M*dm).T).T.reshape(M, dm)
 
             return -multi_FIM_obj/total
+
+    elif method=="Single_FIM_3D_action_MPPI":
+        @jit
+        def FIM_Logdet(U,chis,radar_states,target_states,time_step_size,J,
+                             A,
+                             gamma):
+            # horizon = U.shape[1]
+            horizon,M,dm = target_states.shape
+            N,dn = radar_states.shape
+
+            _,_,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,None))(radar_states,U,chis,time_step_size)
+
+            # iterate through time step
+            Js = [None]*horizon
+            for t in range(1,horizon+1):
+                # iterate through each FIM corresponding to a target
+
+                J = IM_fn(radar_states=ps_trajectory[:,t],target_states=target_states[t-1],J=J)
+                Js[t-1] = J
+
+            Js = jnp.stack(Js)
+            _,logdets = jnp.linalg.slogdet(Js)
+            gammas = gamma**(jnp.arange(horizon))
+            multi_FIM_obj = jnp.sum(gammas*logdets)/jnp.sum(gammas)
+
+            return -multi_FIM_obj
 
 
     elif method=="Single_FIM_2D_noaction":

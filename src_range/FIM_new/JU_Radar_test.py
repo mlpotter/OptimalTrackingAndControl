@@ -183,7 +183,7 @@ if __name__ == "__main__":
     lbfgsb =  ScipyBoundedMinimize(fun=Multi_FIM_Logdet, method="L-BFGS-B",jit=True)
 
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
-    time_step_sizes = jnp.tile(time_step_size, (N, 1))
+    # time_step_sizes = jnp.tile(time_step_size, (N, 1))
 
     U_upper = (jnp.ones((time_steps, 2)) * jnp.array([[max_velocity, max_angle_velocity]]))
     U_lower = (jnp.ones((time_steps, 2)) * jnp.array([[min_velocity, min_angle_velocity]]))
@@ -197,7 +197,7 @@ if __name__ == "__main__":
     J_list = []
     frames = []
     frame_names = []
-    state_multiple_update_parallel = vmap(state_multiple_update, (0, 0, 0, 0))
+    state_multiple_update_parallel = vmap(state_multiple_update, (0, 0, 0, None))
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     for k in range(NT):
         start = time()
@@ -212,7 +212,7 @@ if __name__ == "__main__":
         # U = jnp.zeros((N,2,time_steps))
 
         U = lbfgsb.run(U, bounds=bounds, chis=chis, radar_states=ps, target_states=m0,
-                       time_step_sizes=time_step_sizes,
+                       time_step_size=time_step_size,
                        J=J,
                        A=A,
                        gamma=gamma,
@@ -220,7 +220,7 @@ if __name__ == "__main__":
 
         _, _, Sensor_Positions, Sensor_Chis = state_multiple_update_parallel(ps,
                                                                                             U,
-                                                                                            chis, time_step_sizes)
+                                                                                            chis, time_step_size)
         ps = Sensor_Positions[:,1,:]
         chis = Sensor_Chis[:,1,:]
 

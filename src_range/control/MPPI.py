@@ -21,7 +21,7 @@ import imageio
 # from jax import jacfwd
 # l = jacfwd(RadarEqnMeasure)(qs,ps,Pt,Gt,Gr,L,lam,rcs)
 @jit
-def MPPI(U_nominal,chis_nominal,U_ptb,ps,time_step_sizes,limits):
+def MPPI(U_nominal,chis_nominal,U_ptb,ps,time_step_size,limits):
 
     N,T,dc = U_nominal.shape
 
@@ -38,13 +38,13 @@ def MPPI(U_nominal,chis_nominal,U_ptb,ps,time_step_sizes,limits):
 
     ps_expanded = jnp.expand_dims(ps, 1)
 
-    kinematic_model = vmap(state_multiple_update, (0, 0, 0, 0))
+    kinematic_model = vmap(state_multiple_update, (0, 0, 0, None))
 
-    _,_,nominal_trajectory,nominal_chis = kinematic_model(ps_expanded,U_nominal,chis_nominal,time_step_sizes)
+    _,_,nominal_trajectory,nominal_chis = kinematic_model(ps_expanded,U_nominal,chis_nominal,time_step_size)
 
     MPPI_paths = vmap(kinematic_model,(None,0,None,None))
 
-    _, _, ps_trajectory, chis_trajectory = MPPI_paths(ps_expanded, U_MPPI, chis_nominal, time_step_sizes)
+    _, _, ps_trajectory, chis_trajectory = MPPI_paths(ps_expanded, U_MPPI, chis_nominal, time_step_size)
 
     # ps_unexpanded = jnp.squeeze(ps_forward, 1)
 
@@ -63,9 +63,27 @@ def MPPI_ptb(stds,N, time_steps, num_traj, key,method="beta"):
     if method == "beta":
         U_velocity = jax.random.beta(key,.5,.5,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
         U_angular_velocity = jax.random.beta(key, 0.5,0.5,shape=(num_traj, N, time_steps,1)) * (av_max - av_min) + av_min
+
     elif method=="uniform":
         U_velocity = jax.random.uniform(key,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
         U_angular_velocity = jax.random.uniform(key,shape=(num_traj, N, time_steps,1)) * (av_max - av_min) + av_min
+
+    elif method=='normal':
+        U_velocity = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * v_max + 1
+        U_angular_velocity = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * av_max
+
+
+    elif method=='mixture':
+        p = jnp.array([0.5,0.5])
+        select = jax.random.choice(key,a=2,shape=(num_traj,N,time_steps,1),p=p)
+        U_velocity_normal = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * v_max
+        U_angular_velocity_normal = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * av_max
+
+        U_velocity_beta = jax.random.beta(key,.5,.5,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
+        U_angular_velocity_beta = jax.random.beta(key, 0.5,0.5,shape=(num_traj, N, time_steps,1)) * (av_max - av_min) + av_min
+
+        U_velocity = jnp.where(select == 1, U_velocity_normal, U_velocity_beta)
+        U_angular_velocity = jnp.where(select == 1, U_angular_velocity_normal, U_angular_velocity_beta)
 
     U_ptb = jnp.concatenate((U_velocity, U_angular_velocity), axis=-1)
 
@@ -81,9 +99,9 @@ def MPPI_scores_wrapper(score_fn,method="single"):
 
     if method == "single":
         @jit
-        def MPPI_scores(radar_states,target_states,U_MPPI,chis,time_step_sizes,A,J,gamma):
+        def MPPI_scores(radar_states,target_states,U_MPPI,chis,time_step_size,A,J,gamma):
             # the lower the value, the better
-            score_fn_partial = partial(score_fn,chis=chis, radar_states=radar_states, target_states=target_states, time_step_sizes=time_step_sizes,
+            score_fn_partial = partial(score_fn,chis=chis, radar_states=radar_states, target_states=target_states, time_step_size=time_step_size,
                                                     A=A,J=J,
                                                     gamma=gamma)
 
@@ -95,9 +113,9 @@ def MPPI_scores_wrapper(score_fn,method="single"):
 
     elif method == "multi":
         @jit
-        def MPPI_scores(ps,qs,U_MPPI,chis,time_step_sizes,A, Q, Js,paretos,Pt, Gt, Gr, L, lam, rcs,s,gamma):
+        def MPPI_scores(ps,qs,U_MPPI,chis,time_step_size,A, Q, Js,paretos,Pt, Gt, Gr, L, lam, rcs,s,gamma):
             # the lower the value, the better
-            score_fn_partial = partial(score_fn,chis=chis, ps=ps, qs=qs, time_step_sizes=time_step_sizes,
+            score_fn_partial = partial(score_fn,chis=chis, ps=ps, qs=qs, time_step_size=time_step_size,
                                                     A=A,Q=Q,Js=Js,paretos=paretos,
                                                     Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s,
                                                     gamma=gamma)
