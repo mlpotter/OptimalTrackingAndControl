@@ -57,7 +57,7 @@ if __name__ == "__main__":
     NT = 115
     MPPI_FLAG = True
     PRUNE_FLAG = False
-    MPPI_VISUALIZE = False
+    MPPI_VISUALIZE = True
     MPPI_ITER_VISUALIZE = True
 
     N = 6
@@ -80,12 +80,12 @@ if __name__ == "__main__":
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
     Pr = K / (R ** 4)
 
-    # get the power of the noise of the signal
+    # get the power of the noise of the signalf
     SNR=0
 
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
-    time_steps = 15
+    time_steps = 20
     R_sensors_to_targets = 5.
     R_sensors_to_sensors = 1.5
     time_step_size = T
@@ -101,11 +101,11 @@ if __name__ == "__main__":
     v_init = 0
     av_init = 0
     temperature = 0.1
-    num_traj = 100
+    num_traj = 500
     MPPI_iterations = 100
     MPPI_method = "single"
     method = "Single_FIM_3D_action_MPPI"
-    u_ptb_method = "normal"
+    u_ptb_method = "mixture"
 
 
     from copy import deepcopy
@@ -115,14 +115,14 @@ if __name__ == "__main__":
 
     ps_init = deepcopy(ps)
     z_elevation = 10
-    # qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
-    #                 [-50.4,30.32,z_elevation,-20,-10,0], #,
-    #                 [10,10,z_elevation,10,10,0],
-    #                 [20,20,z_elevation,5,-5,0]])
-    qs = jnp.array([[0.0, -0.0,z_elevation, 0., 0,0], #,#,
-                    [-50.4,30.32,z_elevation,-0,-0,0], #,
-                    [10,10,z_elevation,0,0,0],
-                    [20,20,z_elevation,0,0,0]])
+    qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
+                    [-50.4,30.32,z_elevation,-20,-10,0], #,
+                    [10,10,z_elevation,10,10,0],
+                    [20,20,z_elevation,5,-5,0]])
+    # qs = jnp.array([[0.0, -0.0,z_elevation, 0., 0,0], #,#,
+    #                 [-50.4,30.32,z_elevation,-0,-0,0], #,
+    #                 [10,10,z_elevation,0,0,0],
+    #                 [20,20,z_elevation,0,0,0]])
 
     M, dm = qs.shape;
     N , dn = ps.shape;
@@ -275,7 +275,8 @@ if __name__ == "__main__":
             SCORE_BEST = scores_temp[max_idx]
 
             if SCORE_BEST > best_mppi_iter_score:
-                print(SCORE_BEST)
+                if k == 0:
+                    print("First Iter Best Score: ",SCORE_BEST)
                 best_mppi_iter_score = SCORE_BEST
                 U_BEST = U_MPPI[max_idx]
 

@@ -75,8 +75,8 @@ def MPPI_ptb(stds,N, time_steps, num_traj, key,method="beta"):
 
     elif method=='mixture':
         p = jnp.array([0.5,0.5])
-        select = jax.random.choice(key,a=2,shape=(num_traj,N,time_steps,1),p=p)
-        U_velocity_normal = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * v_max
+        select = jax.random.choice(key,a=2,shape=(num_traj,1,1,1),p=p)
+        U_velocity_normal = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * v_max + 1.0
         U_angular_velocity_normal = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * av_max
 
         U_velocity_beta = jax.random.beta(key,.5,.5,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min

@@ -171,7 +171,9 @@ if __name__ == "__main__":
     # Js = jnp.stack([jnp.eye(d) for m in range(M)])
     J = jnp.eye(dm*M) #jnp.stack([jnp.eye(d) for m in range(M)])
 
-    IM_fn = partial(Single_JU_FIM_Radar,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
+    Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
+
+    IM_fn = partial(Single_JU_FIM_Radar,A=A,Qinv=Qinv,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
     # IM_fn(ps,qs[[0],:],Js=Js)
     IM_fn(ps,qs,J=J)
 
