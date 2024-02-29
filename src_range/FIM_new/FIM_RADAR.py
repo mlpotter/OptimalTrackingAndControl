@@ -122,6 +122,7 @@ def Single_FIM_Radar(radar_states,target_states,Pt,Gt,Gr,L,lam,rcs,fc,c,sigmaW,J
 
     # C =  sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
     C =  c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
+    
     coef = jnp.sqrt((4/(C*distances**6) + 8/(distances**4)))
 
     outer_vector = d * coef

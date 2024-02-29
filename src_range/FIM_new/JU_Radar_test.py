@@ -39,6 +39,7 @@ if __name__ == "__main__":
     FIM_choice = "radareqn"
     measurement_choice = "radareqn"
     method = "Single_FIM_3D_action"
+    fim_method = "Standard FIM"
 
     # Save frames as a GIF
     gif_filename = "radar_optimal_RICE.gif"
@@ -173,7 +174,11 @@ if __name__ == "__main__":
 
     Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
 
-    IM_fn = partial(Single_JU_FIM_Radar,A=A,Qinv=Qinv,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
+    if fim_method == "PCRLB":
+        IM_fn = partial(Single_JU_FIM_Radar,A=A,Qinv=Qinv,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
+    elif fim_method == "Standard FIM":
+        IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
+
     # IM_fn(ps,qs[[0],:],Js=Js)
     IM_fn(ps,qs,J=J)
 

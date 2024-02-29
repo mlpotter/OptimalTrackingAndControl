@@ -26,6 +26,7 @@ import jax.numpy as jnp
 
 from src_range.utils import NoiseParams
 from src_range.control.MPPI import *
+from copy import deepcopy
 
 import os
 
@@ -58,7 +59,6 @@ if __name__ == "__main__":
     PRUNE_FLAG = False
     MPPI_VISUALIZE = False
     MPPI_ITER_VISUALIZE = True
-    fim_method = "Standard FIM"
 
     N = 6
 
@@ -85,7 +85,7 @@ if __name__ == "__main__":
 
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
-    time_steps = 20
+    time_steps = 15
     R_sensors_to_targets = 5.
     R_sensors_to_sensors = 1.5
     time_step_size = T
@@ -98,10 +98,18 @@ if __name__ == "__main__":
     limits = jnp.array([[max_velocity, max_angle_velocity], [min_velocity, min_angle_velocity]])
     stds = jnp.array([[-3,3],
                       [-30* jnp.pi/180, 30 * jnp.pi/180]])
-    v_init = 0
-    av_init = 0
 
-    num_traj = 250
+    v_std = 15
+    av_std = jnp.pi/180 * 45
+    cov_timestep = jnp.array([[v_std**2,0],[0,av_std**2]])
+    cov_traj = jax.scipy.linalg.block_diag(*[cov_timestep for t in range(time_steps)])
+    cov = jax.scipy.linalg.block_diag(*[cov_traj for n in range(N)])
+    cov_N = jnp.stack([cov_traj for n in range(N)])
+    v_init = 1
+    av_init = jnp.pi/180 * 90
+    mu = jnp.tile(jnp.array([v_init,av_init]),(N*time_steps,))
+
+    num_traj = 200
     MPPI_iterations = 50
     MPPI_method = "single"
     method = "Single_FIM_3D_action_MPPI"
@@ -110,10 +118,10 @@ if __name__ == "__main__":
     # ==================== AIS CONFIGURATION ================================= #
     temperature = 0.1
     alpha = 0.8
-    elite_threshold = 0.9
+    elite_threshold = 0.8
     AIS_method = "information"
 
-    gif_savename =  f"JU_MPPI2_{AIS_method}.gif"
+    gif_savename =  f"AIS_MPPI_{AIS_method}.gif"
 
 
     from copy import deepcopy
@@ -123,14 +131,10 @@ if __name__ == "__main__":
 
     ps_init = deepcopy(ps)
     z_elevation = 10
-    # qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
-    #                 [-50.4,30.32,z_elevation,-20,-10,0], #,
-    #                 [10,10,z_elevation,10,10,0],
-    #                 [20,20,z_elevation,5,-5,0]])
     qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
-                    [-100.4,-30.32,z_elevation,20,-10,0], #,
-                    [30,30,z_elevation,-10,-10,0],
-                    [-20,60,z_elevation,-15,15,0]])
+                    [-50.4,30.32,z_elevation,-20,-10,0], #,
+                    [10,10,z_elevation,10,10,0],
+                    [20,20,z_elevation,5,-5,0]])
     # qs = jnp.array([[0.0, -0.0,z_elevation, 0., 0,0], #,#,
     #                 [-50.4,30.32,z_elevation,-0,-0,0], #,
     #                 [10,10,z_elevation,0,0,0],
@@ -158,7 +162,7 @@ if __name__ == "__main__":
     assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
 
     sigmaQ = np.sqrt(10 ** -1)
-    sigmaV = jnp.sqrt(9)
+    sigmaV = jnp.sqrt(1)
 
     A_single = jnp.array([[1., 0, 0, T, 0, 0],
                    [0, 1., 0, 0, T, 0],
@@ -189,13 +193,7 @@ if __name__ == "__main__":
     # IM_fn(ps,qs[[0],:],Js=Js)
     Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
 
-    if fim_method == "PCRLB":
-        IM_fn = partial(Single_JU_FIM_Radar, A=A, Qinv=Qinv, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, fc=fc, c=c,
-                        sigmaV=sigmaV, sigmaW=sigmaW)
-    elif fim_method == "Standard FIM":
-        IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
-
-
+    IM_fn = partial(Single_JU_FIM_Radar,A=A,Qinv=Qinv,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
     IM_fn(ps,qs,J=J)
 
     # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
@@ -228,9 +226,12 @@ if __name__ == "__main__":
     U_V = jnp.ones((N,time_steps,1)) * v_init
     U_W = jnp.ones((N,time_steps,1)) * av_init
     U_Nom =jnp.concatenate((U_V,U_W),axis=-1)
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    mu_bias = jnp.zeros_like(U_Nom)
+    mu_bias = mu_bias.at[:,:,0].set(1)
 
-    fig_debug,axes_debug = plt.subplots(1,1,figsize=(10,10))
+    fig, axes = plt.subplots(1, 3, figsize=(9, 3))
+
+    fig_debug,axes_debug = plt.subplots(1,1,figsize=(3,3))
 
     for k in range(NT):
         print(f"\n Step {k} MPPI Iteration: ")
@@ -242,37 +243,37 @@ if __name__ == "__main__":
 
         target_states_rollout = jnp.stack([(jnp.linalg.matrix_power(A,t-1) @ m0.reshape(-1, M * dm).T).T.reshape(M, dm) for t in range(1,time_steps+1)])
 
+        U_orig = deepcopy(U_Nom)
+        cov_orig = deepcopy(cov_N)
+
         for mppi_iter in range(MPPI_iterations):
             start = time()
             key, subkey = jax.random.split(key)
 
             mppi_start = time()
-            U_ptb = MPPI_ptb(stds,N, time_steps, num_traj, key,method=u_ptb_method)
+            # U_ptb = MPPI_ptb_CMA(U_mu,U_cov,N, time_steps, num_traj, key,method=u_ptb_method)
+            mu_bias = jnp.zeros_like(U_Nom.reshape(N,-1))
+
+            E = jax.random.multivariate_normal(key, mean=jnp.zeros_like(U_Nom).reshape(N,-1), cov=cov_orig, shape=(num_traj,N),method="svd")
+
+
+            # simulate the the model with the trajectory noise samples
+            U_MPPI = jnp.clip(U_orig + E.reshape(num_traj,N,time_steps,2), jnp.expand_dims(U_lower,0), jnp.expand_dims(U_upper,0))
 
             mppi_rollout_start = time()
-            U_MPPI,P_MPPI,CHI_MPPI, _,_,_ = MPPI(U_nominal=U_Nom, chis_nominal=chis,
-                                                               U_ptb=U_ptb,ps=ps,
+
+            P_MPPI,CHI_MPPI = MPPI_CMA(U_MPPI=U_MPPI, chis_nominal=chis,
+                                                               ps=ps,
                                                                time_step_size=time_step_size, limits=limits)
             mppi_rollout_end = time()
-            # if PRUNE_FLAG:
-            #     differences = P_MPPI.squeeze(3)[:,:,jnp.newaxis] - m0[jnp.newaxis, jnp.newaxis, :,jnp.newaxis, :2]
-            #     distances = jnp.sqrt(jnp.sum((differences ** 2), -1))
-            #     prune = (distances<R_sensors_to_targets)
-            #     prune = np.logical_not(prune.any(axis=[1, 2, 3]))
-            #
-            #     print("Kept: ",prune.sum())
-            #
-            #     U_MPPI = U_MPPI[prune]
-            #     P_MPPI = P_MPPI[prune]
-            #     CHI_MPPI = CHI_MPPI[prune]
-            #
-            #      # plt.plot(P_MPPI.squeeze()[:,0,:,0].T,P_MPPI.squeeze()[:,0,:,1].T)
+
+
+            # Score all the rollouts
             mppi_score_start = time()
             cost_MPPI = MPPI_scores(ps, target_states_rollout, U_MPPI, temperature,chis, time_step_size,
                                       A=A,J=J,
                                       gamma=gamma)
             mppi_score_end = time()
-            # print("MPPI Score Time: ", mppi_score_end - mppi_start)
 
 
             min_idx = jnp.argmin(cost_MPPI)
@@ -288,11 +289,35 @@ if __name__ == "__main__":
 
             # scores_MPPI_weight = jax.nn.softmax(scores_MPPI)
 
+            # Get the Elite samples
             scores_MPPI_weight = weight_fn(cost_MPPI)
+            neff = 1/(jnp.sum(scores_MPPI_weight**2))
 
-            delta_actions = U_MPPI - U_Nom
+            if neff < N*time_steps:
+                print("Weight Tempering")
+                scores_MPPI_weight = scores_MPPI_weight ** (1 / 2)
+                scores_MPPI_weight = scores_MPPI_weight / jnp.sum(scores_MPPI_weight)
+
+                neff = 1 / (jnp.sum(scores_MPPI_weight ** 2))
+
+            if jnp.isnan(neff).any():
+                print("BREAK!")
+
+            print(f"Neff Samples {int(neff)}")
+
+            # delta_actions = U_MPPI - U_Nom
             # U_Nom = jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1), axis=0)
-            U_Nom += jnp.sum(delta_actions * scores_MPPI_weight.reshape(-1, 1, 1, 1), axis=0)
+
+            if mppi_iter < (MPPI_iterations-2):
+                # U_Nom += jnp.sum(delta_actions * scores_MPPI_weight.reshape(-1, 1, 1, 1), axis=0)
+
+                U_Nom = jnp.clip(U_Nom + jnp.sum(scores_MPPI_weight.reshape(num_traj,1,1,1) * E.reshape(num_traj,N,time_steps,2),axis=0),U_lower,U_upper)
+
+                # diff = U_MPPI.reshape(num_traj,N,-1) - U_Nom.reshape(N,-1)
+
+                cov_orig = jnp.sum(scores_MPPI_weight.reshape(-1,1,1,1) *(E[:,:,:,jnp.newaxis] @ E[:,:,jnp.newaxis,:]),axis=0) + jnp.tile(jnp.eye(cov_N.shape[-1]),(N,1,1))*1e-8
+
+
 
             if k==0 and MPPI_ITER_VISUALIZE:
                 file_mppi = os.path.join("tmp_images", f"MPPI_single_iteration_{mppi_iter}.png")
@@ -320,7 +345,10 @@ if __name__ == "__main__":
             # print("MPPI TIME: ",mppi_end-mppi_start)
 
         mppi_round_time_end = time()
-        U_Nom = jnp.roll(U_BEST,-1,axis=1)
+        mean_shift = (U_Nom - U_orig)
+        E = E + mean_shift.reshape(1,N,time_steps*2)
+        U_Nom = U_orig
+        # U_Nom +=
         print("MPPI Round Time: ",mppi_round_time_end-mppi_round_time_start)
         print("MPPI Iter Time: ",mppi_end-mppi_start)
         print("MPPI Score Time: ",mppi_score_end-mppi_score_start)
@@ -332,8 +360,11 @@ if __name__ == "__main__":
 
         # U_BEST =  jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1),axis=0)
         # U_nominal =  jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1),axis=0)
-        _, _, Sensor_Positions, Sensor_Chis = state_multiple_update_vmap(jnp.expand_dims(ps, 1), U_BEST ,
+        _, _, Sensor_Positions, Sensor_Chis = state_multiple_update_vmap(jnp.expand_dims(ps, 1), U_Nom ,
                                                                        chis, time_step_size)
+
+        U_Nom += jnp.clip(jnp.sum(scores_MPPI_weight.reshape(num_traj,1,1,1) *  E.reshape(num_traj,N,time_steps,2),axis=0),U_lower,U_upper)
+        U_Nom = jnp.roll(U_Nom,-1,axis=1)
 
         # if k == 0:
         #     MPPI_visualize(P_MPPI, Sensor_Positions)
@@ -394,4 +425,4 @@ if __name__ == "__main__":
 
     if MPPI_ITER_VISUALIZE:
         images = [imageio.imread(file) for file in images_mppi]
-        imageio.mimsave(os.path.join(gif_savepath,f'MPPI_step_{AIS_method}.gif'),images,duration=0.1)#
+        imageio.mimsave(os.path.join(gif_savepath,'MPPI_step.gif'),images,duration=0.1)#
