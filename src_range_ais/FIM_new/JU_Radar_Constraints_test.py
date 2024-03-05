@@ -19,13 +19,13 @@ from copy import deepcopy
 import os
 import glob
 
-from src_range.FIM.JU_Radar import *
-from src_range.objective_fns.objectives import MPC_decorator
+from src_range.FIM_new.FIM_RADAR import *
 from src_range.utils import NoiseParams
 
 from scipy.optimize import minimize
 from scipy.optimize import NonlinearConstraint
 from scipy.optimize import Bounds
+
 
 
 config.update("jax_enable_x64", True)
@@ -44,14 +44,14 @@ if __name__ == "__main__":
     method = 'Single_FIM_2D_noaction'
 
     # Save frames as a GIF
-    pdf_filename = "radar_optimal_RICE.pdf"
+    pdf_filename = "radar_optimal_range.pdf"
     pdf_savepath = os.path.join("..", "..", "images")
     photo_dump = os.path.join("tmp_images")
     remove_photo_dump = True
     os.makedirs(photo_dump, exist_ok=True)
 
 
-    Restarts = 25
+    Restarts = 10
     N = 6
 
     # ==================== RADAR CONFIGURATION ======================== #
@@ -62,19 +62,20 @@ if __name__ == "__main__":
     lam = c / fc
     rcs = 1;
     L = 1;
-    # alpha = (jnp.pi)**2 / 3
+    alpha = (jnp.pi)**2 / 3
     B = 0.05 * 10**5
+    Pt = 10000
+    K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
+
+
 
     # calculate Pt such that I achieve SNR=x at distance R=y
     R = 1000
-
-    Pt = 10000
-    K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
     Pr = K / (R ** 4)
 
-    # get the power of the noise of the signalf
-    SNR=0
 
+    SNR = -20
+    # calculate Pt such that I achieve SNR=x at distance R=y
 
     # ==================== SENSOR CONSTRAINTS ======================== #
     R_sensors_to_targets = 750.
@@ -85,37 +86,34 @@ if __name__ == "__main__":
     #
     ps = jax.random.uniform(key, shape=(N, 2), minval=-2000, maxval=2000)
     qs = jnp.array([
-                    [-2500,-2500.], #,
-                    [2500,2500], #,
-                    [2000,-3000]])
+                    [-2500,-2500.,25,25], #,
+                    [2500,2500,-20,6], #,
+                    [2000,-2500,-10,-10]])
 
     M, dm = qs.shape;
     N ,dn = ps.shape;
 
-    sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
-    # coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi)** 3 / (R ** 4)
+    sigmaW = jnp.sqrt(M*Pr / (10**(SNR/10)))
+
     C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
 
-    IM_fn = partial(Single_FIM_Radar, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, fc=fc, c=c, sigmaW=sigmaW)
-
-    J = IM_fn(radar_states=ps, target_states=qs,
-              J=None)  # [JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],s=s) for i in range(len(Js))]
-
-    MPC_obj = MPC_decorator(FIM_radareqn_target_logdet,method=method)
-
-
-    print("Noise Power: ",sigmaW**2)
-    print("Power Return (RCS): ",Pr)
+    # print("Power Return (RCS): ",coef*Pt)
     print("K",K)
-
+    print("C",C)
     print("Pt (peak power)={:.9f}".format(Pt))
+    print("Noise Power={:.5f}".format(sigmaW**2))
     print("lam ={:.9f}".format(lam))
-    print("C=",C)
+
+
+
+    IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
+
+    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
 
     constraints = []
     def distance_constraint_sensors_to_targets(ps_optim):
         ps_optim = ps_optim.reshape(N,dn)
-        difference = (qs[jnp.newaxis, :,:] - ps_optim[:, jnp.newaxis, :])
+        difference = (qs[jnp.newaxis, :,:dm//2] - ps_optim[:, jnp.newaxis, :])
         distance = jnp.sqrt(jnp.sum(difference ** 2, -1))
 
         return distance.ravel()
@@ -132,14 +130,14 @@ if __name__ == "__main__":
     constraints.append(NonlinearConstraint(distance_constraint_sensors_to_targets,R_sensors_to_targets/2,np.inf))
     constraints.append(NonlinearConstraint(distance_constraint_sensors_to_sensors,R_sensors_to_sensors/2,np.inf))
 
-    MPC_obj_partial = partial(MPC_obj,qs=qs,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
-    objective = lambda ps_optim: MPC_obj_partial(ps=ps_optim.reshape(N,dn))
+    Multi_FIM_Logdet_partial = partial(Multi_FIM_Logdet,target_states=qs)
+    objective = lambda ps_optim: Multi_FIM_Logdet_partial(radar_states=ps_optim.reshape(N,dn))
 
     jac_jax = jax.jit(jax.grad(objective,argnums=0))
     hess_jax = jax.jit(jax.hessian(objective,argnums=0))
 
-    jac = lambda ps_optim: jac_jax(ps=ps_optim).ravel()
-    hess = lambda ps_optim: hess_jax(ps=ps_optim)
+    jac = lambda ps_optim: jac_jax(ps_optim).ravel()
+    hess = lambda ps_optim: hess_jax(ps_optim)
 
     f_best = jnp.inf
     ps_best = 0
@@ -148,15 +146,15 @@ if __name__ == "__main__":
         print("Obj Init",objective(ps))
 
 
-        SLSQP = minimize(fun=objective, x0=ps.ravel(),method="SLSQP",constraints=constraints,options={"maxiter":10000,"disp":True},jac=jac,hess=hess)
-        print(SLSQP)
-        ps_optim = SLSQP.x.reshape(N,dn)
+        solver = minimize(fun=objective, x0=ps.ravel(),method="SLSQP",constraints=constraints,options={"maxiter":10000,"disp":True},jac=jac,hess=hess)
+        print(solver)
+        ps_optim = solver.x.reshape(N,dn)
         # ps = ps_optim
 
-        J = IM_fn(radar_states=ps_optim,target_states=qs,J=None) #[JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],s=s) for i in range(len(Js))]
+        J = IM_fn(radar_states=ps_optim, target_states=qs)
         print("Matrix Rank: ",jnp.linalg.matrix_rank(J))
-        if f_best > SLSQP.fun:
-            f_best = SLSQP.fun
+        if f_best > solver.fun:
+            f_best = solver.fun
             ps_best = ps_optim
 
         print("\n")
@@ -204,11 +202,11 @@ if __name__ == "__main__":
     axes[0].plot([],[],"m--",label="Target Boundary")
     axes[0].plot(ps_best[:,0],ps_best[:,1],"ro",label="Radar")
     axes[0].plot(ps[:,0],ps[:,1],"rX",label="Radar Init")
-    axes[0].set_title(f"Best Log |J| = -{np.round(best_obj,5)}")
+    axes[0].set_title(f"Best Log |J| = {-np.round(best_obj,5)}")
     axes[0].legend()
 
-    qx, qy, logdet_grid = FIM_2D_Visualization(ps=ps_best, qs=qs,
-                                            Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,c=c, B=B,alpha=alpha,
+    qx, qy, logdet_grid = FIM_2D_Visualization(ps=ps_best, qs=qs[:,:dm//2],
+                                            Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,c=c,fc=fc, sigmaW=sigmaW,
                                             N=2500,space=1000)
 
     CS = axes[1].contourf(qx, qy, logdet_grid, levels=30)

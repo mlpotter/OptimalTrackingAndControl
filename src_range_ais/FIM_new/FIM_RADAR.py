@@ -13,7 +13,7 @@ from jax.tree_util import Partial as partial
 
 from copy import deepcopy
 
-from src_range.control.Sensor_Dynamics import unicycle_kinematics
+from src_range_ais.control.Sensor_Dynamics import unicycle_kinematics
 
 
 #

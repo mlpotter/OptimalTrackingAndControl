@@ -13,7 +13,7 @@ from jax.tree_util import Partial as partial
 
 from copy import deepcopy
 
-from src_range.control.Sensor_Dynamics import state_multiple_update
+from src_range.control.Sensor_Dynamics import unicycle_kinematics
 
 
 @jit
@@ -111,65 +111,6 @@ def FIM_D_Radar(ps,qs,Pt,Gt,Gr,L,lam,rcs,c,B,alpha):
 
     J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
     return J
-
-def Multi_FIM_Logdet_decorator_MPC(score_fn,method="action"):
-
-    # the lower this value, the better!
-
-    if method=="action":
-        @jit
-        def Multi_FIM_Logdet(U,chis,ps,qs,time_step_sizes,Js,paretos,
-                             A,Q,
-                             Pt,Gt,Gr,L,lam,rcs,c,B,alpha,
-                             gamma):
-            horizon = U.shape[1]
-            M,dm = qs.shape
-            N,dn = ps.shape
-            # ps = jnp.expand_dims(ps,1)
-
-            ps,chis,ps_trajectory,chis_trajectory = vmap(state_multiple_update,(0,0,0,0))(ps,U,chis,time_step_sizes)
-
-            multi_FIM_obj = 0
-
-            Js = jnp.stack(Js)
-
-            fim_logdet_parallel = vmap(partial(score_fn,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha),in_axes=(None,0,0))
-            Js_update_parallel = vmap(partial(JU_FIM_D_Radar,A=A,Q=Q,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha),in_axes=(None,0,0))
-            # iterate through time step
-            for t in jnp.arange(1,horizon+1):
-                # iterate through each FIM corresponding to a target
-                # for m in range(M):
-                #     Jm = Js[m]
-                multi_FIM_obj += jnp.sum(gamma**(t-1) * paretos * fim_logdet_parallel(ps_trajectory[:,t],qs,Js))
-
-                                             # paretos[m] * FIM_logdet(ps=ps_trajectory[:,t].squeeze(),qs=qs[[m],:],J=Jm,
-                                             #                                A=A,Q=Q,
-                                             #                                Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,s=s)
-                    #
-                    # Js[m] = JU_FIM_D_Radar(ps=ps_trajectory[:,t].squeeze(), q=qs[[m],:], J=Jm,
-                    #                        A=A, Q=Q,
-                    #                        Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,s=s)
-                Js = Js_update_parallel(ps_trajectory[:,t],qs,Js)
-
-                qs = (A @ qs.reshape(-1, dm).T).T.reshape(M, dm)
-
-            return -multi_FIM_obj
-
-    elif method=="FIM2D":
-        @jit
-        def Multi_FIM_Logdet(ps, qs,
-                             Pt, Gt, Gr, L, lam, rcs,c,B,alpha):
-
-            M, dm = qs.shape
-            N, dn = ps.shape
-            # ps = jnp.expand_dims(ps,1)
-
-            multi_FIM_obj = score_fn(ps,qs, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs,c=c,B=B,alpha=alpha)
-
-            return -multi_FIM_obj
-
-
-    return Multi_FIM_Logdet
 
 @partial(jit,static_argnames=['N',"space"])
 def FIM_2D_Visualization(ps,qs,

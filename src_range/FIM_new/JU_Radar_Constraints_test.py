@@ -20,6 +20,7 @@ import os
 import glob
 
 from src_range.FIM_new.FIM_RADAR import *
+from src_range.objective_fns.objectives import MPC_decorator
 from src_range.utils import NoiseParams
 
 from scipy.optimize import minimize
@@ -108,7 +109,7 @@ if __name__ == "__main__":
 
     IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
+    MPC_obj = MPC_decorator(IM_fn=IM_fn,method=method)
 
     constraints = []
     def distance_constraint_sensors_to_targets(ps_optim):
@@ -130,8 +131,8 @@ if __name__ == "__main__":
     constraints.append(NonlinearConstraint(distance_constraint_sensors_to_targets,R_sensors_to_targets/2,np.inf))
     constraints.append(NonlinearConstraint(distance_constraint_sensors_to_sensors,R_sensors_to_sensors/2,np.inf))
 
-    Multi_FIM_Logdet_partial = partial(Multi_FIM_Logdet,target_states=qs)
-    objective = lambda ps_optim: Multi_FIM_Logdet_partial(radar_states=ps_optim.reshape(N,dn))
+    MPC_obj_partial = partial(MPC_obj,target_states=qs)
+    objective = lambda ps_optim: MPC_obj_partial(radar_states=ps_optim.reshape(N,dn))
 
     jac_jax = jax.jit(jax.grad(objective,argnums=0))
     hess_jax = jax.jit(jax.hessian(objective,argnums=0))

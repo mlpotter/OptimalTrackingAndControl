@@ -20,8 +20,8 @@ from copy import deepcopy
 import os
 import glob
 
-from src_range.FIM_new.FIM_RADAR import *
-from src_range.utils import NoiseParams
+from src_range_ais.FIM_new.FIM_RADAR import *
+from src_range_ais.utils import NoiseParams
 
 
 config.update("jax_enable_x64", True)
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     fim_method = "PCRLB"
 
     # Save frames as a GIF
-    gif_filename = "radar_optimal_RICE.gif"
+    gif_filename = "radar_optimal_RICE_constrained.gif"
     gif_savepath = os.path.join("..", "..", "images","gifs")
     photo_dump = os.path.join("tmp_images")
     remove_photo_dump = True
@@ -187,17 +187,10 @@ if __name__ == "__main__":
     Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
 
     print("Optimization START: ")
-    lbfgsb =  ScipyBoundedMinimize(fun=Multi_FIM_Logdet, method="L-BFGS-B",jit=True)
+    lbfgsb =  ScipyMinimize(fun=Multi_FIM_Logdet, method="BFGS",jit=True)
 
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     # time_step_sizes = jnp.tile(time_step_size, (N, 1))
-
-    U_upper = (jnp.ones((time_steps, 2)) * jnp.array([[max_velocity, max_angle_velocity]]))
-    U_lower = (jnp.ones((time_steps, 2)) * jnp.array([[min_velocity, min_angle_velocity]]))
-
-    U_lower = jnp.tile(U_lower, jnp.array([N, 1, 1]))
-    U_upper = jnp.tile(U_upper, jnp.array([N, 1, 1]))
-    bounds = (U_lower, U_upper)
 
     m0 = qs
 
@@ -218,7 +211,7 @@ if __name__ == "__main__":
 
         # U = jnp.zeros((N,2,time_steps))
 
-        U = lbfgsb.run(U, bounds=bounds,chis=chis, radar_states=ps, target_states=m0,
+        U = lbfgsb.run(U,chis=chis, radar_states=ps, target_states=m0,
                        time_step_size=time_step_size,
                        J=J,
                        A=A,

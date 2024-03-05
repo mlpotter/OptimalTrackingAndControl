@@ -9,7 +9,7 @@ from jax import jit
 from jax.tree_util import Partial as partial
 from jax import vmap
 
-from src_range.control.Sensor_Dynamics import unicycle_kinematics
+from src_range_ais.control.Sensor_Dynamics import unicycle_kinematics
 
 from jaxopt import ScipyBoundedMinimize
 import matplotlib.pyplot as plt
@@ -55,13 +55,9 @@ def MPPI(U_nominal,chis_nominal,U_ptb,ps,time_step_size,limits):
 
 
 @jit
-def MPPI_CMA(U_MPPI,chis_nominal,ps,time_step_size,limits):
+def MPPI_CMA(U_MPPI,chis_nominal,ps,time_step_size):
 
     _,N,T,dc = U_MPPI.shape
-
-    # U is Number of sensors x Control Inputs x T
-    U_upper = jnp.ones((1,1,T, dc)) * jnp.reshape(limits[0],(1,1,1,dc))
-    U_lower = jnp.ones((1,1,T, dc)) * jnp.reshape(limits[1],(1,1,1,dc))
 
 
     # U_velocity = jax.random.uniform(key, shape=(num_traj,N, 1, time_steps), minval=limits[1][0], maxval=limits[0][0])
@@ -147,12 +143,13 @@ def weighting(method="CE"):
             score_zeta = jnp.quantile(costs,1-elite_threshold)
 
             weight = 1/zeta * (costs < score_zeta)
-            return weight/jnp.sum(weight)
+            return weight/jnp.sum(weight,0)
 
 
     elif method == "information":
         def weight_fn(costs,temperature):
-            weight = jax.nn.softmax(-1/temperature * (costs-jnp.argmin(costs,axis=0)))
+
+            weight = jax.nn.softmax(-1/temperature * (costs-jnp.argmin(costs,axis=0)),axis=0)
             return weight
 
     return weight_fn

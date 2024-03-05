@@ -22,6 +22,7 @@ import glob
 
 from src_range.FIM.JU_Radar import *
 from src_range.utils import NoiseParams
+from src_range.objective_fns.objectives import MPC_decorator
 
 
 config.update("jax_enable_x64", True)
@@ -168,10 +169,10 @@ if __name__ == "__main__":
                    A=A_single, Q=Q_single,
                    Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,c=c,B=B,alpha=alpha)
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(JU_FIM_radareqn_target_logdet)
+    MPC_obj = MPC_decorator(JU_FIM_radareqn_target_logdet)
 
     print("Optimization START: ")
-    lbfgsb =  ScipyBoundedMinimize(fun=Multi_FIM_Logdet, method="L-BFGS-B",jit=True)
+    lbfgsb =  ScipyBoundedMinimize(fun=MPC_obj, method="L-BFGS-B",jit=True)
 
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     time_step_sizes = jnp.tile(time_step_size, (N, 1))

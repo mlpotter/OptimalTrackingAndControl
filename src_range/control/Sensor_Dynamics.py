@@ -54,7 +54,7 @@ from jax import jit
 #     return p,chi,jnp.vstack(ps),jnp.vstack(chis)
 
 # @jit
-def state_multiple_update(p,U,chi,time_step_sizes):
+def unicycle_kinematics(p,U,chi,time_step_sizes):
     # sensor dynamics for unicycle model
 
     vs,avs = U[:,[0]],U[:,[1]]
