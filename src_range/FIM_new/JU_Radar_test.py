@@ -81,14 +81,14 @@ if __name__ == "__main__":
 
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
-    time_steps = 20
+    time_steps = 15
     R_sensors_to_targets = 5.
     R_sensors_to_sensors = 1.5
     time_step_size = T
     max_velocity = 50.
     min_velocity = 0
-    max_angle_velocity = jnp.pi/2
-    min_angle_velocity = -jnp.pi/2
+    max_angle_velocity = jnp.pi
+    min_angle_velocity = -jnp.pi
 
     # ==================== MPPI CONFIGURATION ================================= #
     limits = jnp.array([[max_velocity, max_angle_velocity], [min_velocity, min_angle_velocity]])
@@ -251,7 +251,7 @@ if __name__ == "__main__":
 
         save_time = time()
         if (k+1)%frame_skip == 0:
-            plt.minorticks_off()
+            # fig.minorticks_off()
 
             axes[0].plot(qs_previous[:,0], qs_previous[:,1], 'g.',label="_nolegend_")
             axes[0].plot(m0[:,0], m0[:,1], 'go',label="Targets")
@@ -282,8 +282,8 @@ if __name__ == "__main__":
 
 
             filename = f"frame_{k}.png"
-            plt.tight_layout()
-            plt.savefig(os.path.join(photo_dump, filename))
+            fig.tight_layout()
+            fig.savefig(os.path.join(photo_dump, filename))
 
             frame_names.append(os.path.join(photo_dump, filename))
             axes[0].cla()
@@ -292,9 +292,9 @@ if __name__ == "__main__":
         save_time = time() - save_time
         print("Figure Save Time: ",save_time)
 
-    plt.figure()
-    plt.plot(jnp.array(J_list))
-    plt.show()
+    fig.figure()
+    fig.plot(jnp.array(J_list))
+    fig.show()
     print("lol")
 
 

@@ -52,7 +52,7 @@ if __name__ == "__main__":
     os.makedirs(photo_dump, exist_ok=True)
 
 
-    Restarts = 10
+    Restarts = 1
     N = 6
 
     # ==================== RADAR CONFIGURATION ======================== #
