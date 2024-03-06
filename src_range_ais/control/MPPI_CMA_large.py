@@ -100,17 +100,17 @@ if __name__ == "__main__":
                       [-30* jnp.pi/180, 30 * jnp.pi/180]])
 
     v_std = 3
-    av_std = jnp.pi/180 * 20
+    av_std = jnp.pi/180 * 30
     cov_timestep = jnp.array([[v_std**2,0],[0,av_std**2]])
     cov_traj = jax.scipy.linalg.block_diag(*[cov_timestep for t in range(time_steps)])
     cov = jax.scipy.linalg.block_diag(*[cov_traj for n in range(N)])
     # cov = jnp.stack([cov_traj for n in range(N)])
-    v_init = 5
-    av_init = jnp.pi/180 * 90
+    v_init = 0
+    av_init = 0* 90
     mu = jnp.tile(jnp.array([v_init,av_init]),(N*time_steps,))
 
     num_traj = 2000
-    MPPI_iterations = 20
+    MPPI_iterations = 50
     MPPI_method = "single"
     method = "Single_FIM_3D_action_MPPI"
     u_ptb_method = "mixture"
@@ -118,8 +118,8 @@ if __name__ == "__main__":
     # ==================== AIS CONFIGURATION ================================= #
     temperature = 0.1
     alpha = 1
-    elite_threshold = 0.8
-    AIS_method = "information"
+    elite_threshold = 0.9
+    AIS_method = "CE"
 
     gif_savename =  f"AIS_MPPI_{AIS_method}.gif"
 
@@ -310,7 +310,7 @@ if __name__ == "__main__":
 
                 # diff = U_MPPI.reshape(num_traj,N,-1) - U.reshape(N,-1)
 
-                # cov_prime = jnp.sum(weights.reshape(-1,1,1) *(E[:,:,jnp.newaxis] @ E[:,jnp.newaxis,:]),axis=0) + jnp.eye(cov.shape[-1])*1e-8
+                cov_prime = jnp.sum(weights.reshape(-1,1,1) *(E[:,:,jnp.newaxis] @ E[:,jnp.newaxis,:]),axis=0) + jnp.eye(cov.shape[-1])*1e-4
 
 
             if k==0 and MPPI_ITER_VISUALIZE:
@@ -367,11 +367,12 @@ if __name__ == "__main__":
             # print("MPPI TIME: ",mppi_end-mppi_start)
 
         mppi_round_time_end = time()
-        # mean_shift = (U_prime - U)
 
-        E_prime = E + U_prime.ravel()#mean_shift.ravel()
+        mean_shift = (U_prime - U)
 
-        U = jnp.sum(E_prime.reshape(num_traj,N,time_steps,2),axis=0)
+        E_prime = E + mean_shift.ravel()
+
+        U += jnp.sum(weights.reshape(-1,1,1,1) * E_prime.reshape(num_traj,N,time_steps,2),axis=0)
         # U +=
         print("MPPI Round Time: ",mppi_round_time_end-mppi_round_time_start)
         print("MPPI Iter Time: ",mppi_end-mppi_start)

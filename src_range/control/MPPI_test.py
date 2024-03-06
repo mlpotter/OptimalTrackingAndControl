@@ -9,7 +9,7 @@ from jaxopt import ScipyMinimize
 
 
 from src_range.FIM_new.FIM_RADAR import Single_JU_FIM_Radar,Single_FIM_Radar,FIM_Visualization
-from src_range.objective_fns.objectives import MPC_decorator,control_penalty,collision_penalty
+from src_range.objective_fns.objectives import MPC_decorator,control_penalty,collision_penalty,self_collision_penalty,speed_penalty
 from src_range.utils import NoiseParams
 from src_range.control.MPPI import *
 
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     tail_size = 5
     plot_size = 15
     T = 0.1
-    NT = 50
+    NT = 115
     MPPI_FLAG = True
     PRUNE_FLAG = False
     MPPI_VISUALIZE = False
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
     time_steps = 20
     R_sensors_to_targets = 20
-    R_sensors_to_sensors = 1.5
+    R_sensors_to_sensors = 3
     time_step_size = T
     max_velocity = 50.
     min_velocity = 0
@@ -101,7 +101,7 @@ if __name__ == "__main__":
 
     # ==================== MPPI CONFIGURATION ================================= #
     limits = jnp.array([[max_velocity, max_angle_velocity], [min_velocity, min_angle_velocity]])
-    stds = jnp.array([[-3,3],
+    stds = jnp.array([[-2,2],
                       [-30* jnp.pi/180, 30 * jnp.pi/180]])
 
     cov_timestep = jnp.array([[stds[0,1]**2,0],[0,stds[1,1]**2]])
@@ -109,18 +109,17 @@ if __name__ == "__main__":
     # cov = jax.scipy.linalg.block_diag(*[cov_traj for n in range(N)])
     cov = jnp.stack([cov_traj for n in range(N)])
 
-    v_init = 2
-    av_init = 180 * jnp.pi / 180
+    v_init = 0
+    av_init = 0 * jnp.pi / 180
 
-    num_traj = 250
-    MPPI_iterations = 75
+    num_traj = 100
+    MPPI_iterations = 100
     MPPI_method = "single"
-    method = "Single_FIM_Collision"
+    method = "Single_FIM_Double_Collision"
     u_ptb_method = "mixture"
 
     # ==================== AIS CONFIGURATION ================================= #
     temperature = 0.1
-    alpha3 = 1
     elite_threshold = 0.9
     AIS_method = "information"
 
@@ -167,10 +166,16 @@ if __name__ == "__main__":
     print("C=",C)
 
     # ============================ MPC Settings =====================================#
-    gamma = 0.95
-    spread = 15
-    alpha1 = 1
-    alpha2 = 100
+    gamma = 0.9
+    # spread = 15 alpha=100 works
+    spread_target = 20
+    spread_radar = 2
+    alpha1 = 1 # FIM
+    alpha2 = 40 # Target - Radar Distance
+    alpha3 = 20 # Radar - Radar Distance
+    alpha4 = 1 # AIS control cost
+    alpha5 = 0 # speed cost
+
     paretos = jnp.ones((M,)) * 1 / M  # jnp.array([1/3,1/3,1/3])
     assert len(paretos) == M, "Pareto weights not equal to number of targets!"
     assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
@@ -219,7 +224,10 @@ if __name__ == "__main__":
 
     # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
 
-    MPC_obj = partial(MPC_decorator(IM_fn=IM_fn,method=method),radius=R_sensors_to_targets,spread=spread,alpha1=alpha1,alpha2=alpha2)
+    MPC_obj = partial(MPC_decorator(IM_fn=IM_fn,method=method),
+                      radius_target=R_sensors_to_targets,spread_target=spread_target,
+                      radius_radar=R_sensors_to_sensors,spread_radar=spread_radar,
+                      alpha1=alpha1,alpha2=alpha2,alpha3=alpha3)
 
     MPPI_scores = MPPI_scores_wrapper(MPC_obj,method=MPPI_method)
 
@@ -301,7 +309,8 @@ if __name__ == "__main__":
 
             cost_control = control_penalty(U_prime=U_Nom,U=U_BEST,V=U_MPPI,cov=cov,dTraj=num_traj,dN=N,dC=2)
 
-            cost_MPPI = cost_trajectory +  temperature * (1-alpha3) * cost_control.mean(axis=1).squeeze()
+            cost_speed = speed_penalty(U_MPPI,speed_minimum=5)
+            cost_MPPI = cost_trajectory + temperature * (1-alpha4) * cost_control.mean(axis=1).squeeze() + alpha5
 
             min_idx = jnp.argmin(cost_MPPI)
             lowest_cost = cost_MPPI[min_idx]
@@ -391,11 +400,25 @@ if __name__ == "__main__":
         # FIMs.append(-jnp.nanmean(scores_MPPI))
 
 
-
         # U_BEST =  jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1),axis=0)
         # U_nominal =  jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1),axis=0)
         _, _, Sensor_Positions, Sensor_Chis = unicycle_kinematics_vmap(jnp.expand_dims(ps, 1), U_BEST ,
                                                                        chis, time_step_size)
+
+        # cost_collision = [gamma ** (t - 1) * collision_penalty(radar_states=Sensor_Positions[:, t],
+        #                                                        target_states=target_states_rollout[t - 1],
+        #                                                        radius=R_sensors_to_targets, spread=spread_target) for t in
+        #                   range(1, time_steps + 1)]
+        #
+        # cost_control = control_penalty(U_prime=U_Nom, U=U_BEST, V=U_MPPI, cov=cov, dTraj=num_traj, dN=N, dC=2)
+        #
+        # cost_self_collision = [gamma ** (t - 1) * self_collision_penalty(radar_states=Sensor_Positions[:, t],
+        #                                                        radius=R_sensors_to_sensors, spread=spread_radar) for t in
+        #                   range(1, time_steps + 1)]
+        #
+        # print(f"Cost Collision: {cost_collision}")
+
+        # print("MPPI Score Time: ", mppi_score_end - mppi_start)
 
         # if k == 0:
         #     MPPI_visualize(P_MPPI, Sensor_Positions)
@@ -422,6 +445,12 @@ if __name__ == "__main__":
                     Circle(m0[m, :], radius_projected, edgecolor="green", fill=False, lw=1,
                            linestyle="--", label="_nolegend_"))
 
+            # for t in range(1,time_steps+1):
+            #     for n in range(N):
+            #         axes[0].add_patch(
+            #             Circle(Sensor_Positions[n,t, :], R_sensors_to_sensors, edgecolor="red", fill=False, lw=1,
+            #                    linestyle="--", label="_nolegend_"))
+
             if MPPI_VISUALIZE:
                 for n in range(N):
                     axes[0].plot(P_MPPI[:, n, :, 0].T, P_MPPI[:, n, :, 1].T, 'b-',label="_nolegend_")
@@ -431,6 +460,7 @@ if __name__ == "__main__":
             axes[0].set_title(f"k={k}")
             # axes[0].legend(bbox_to_anchor=(0.5, 1.45),loc="upper center")
             axes[0].legend(bbox_to_anchor=(0.7, 1.45),loc="upper center")
+            axes[0].axis('equal')
 
             qx,qy,logdet_grid = FIM_Visualization(ps=ps, qs=m0,
                                                   Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW,
@@ -441,6 +471,7 @@ if __name__ == "__main__":
             #
             axes[1].scatter(m0[:, 0], m0[:, 1], s=50, marker="o", color="g")
             axes[1].set_title("Instant Time Objective Function Map")
+            axes[1].axis('equal')
 
             axes[2].plot(jnp.array(FIMs),'ko')
             axes[2].set_ylabel("LogDet FIM (Higher is Better)")

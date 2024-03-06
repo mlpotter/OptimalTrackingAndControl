@@ -21,6 +21,7 @@ import os
 import glob
 
 from src_range.FIM_new.FIM_RADAR import *
+from src_range.objective_fns.objectives import *
 from src_range.utils import NoiseParams
 
 
@@ -184,10 +185,10 @@ if __name__ == "__main__":
 
     # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
 
-    Multi_FIM_Logdet = Multi_FIM_Logdet_decorator_MPC(IM_fn=IM_fn,method=method)
+    MPC_obj = MPC_decorator(IM_fn=IM_fn,method=method)
 
     print("Optimization START: ")
-    lbfgsb =  ScipyBoundedMinimize(fun=Multi_FIM_Logdet, method="L-BFGS-B",jit=True)
+    lbfgsb =  ScipyBoundedMinimize(fun=MPC_obj, method="L-BFGS-B",jit=True)
 
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     # time_step_sizes = jnp.tile(time_step_size, (N, 1))

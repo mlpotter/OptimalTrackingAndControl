@@ -149,7 +149,7 @@ def weighting(method="CE"):
     elif method == "information":
         def weight_fn(costs,temperature):
 
-            weight = jax.nn.softmax(-1/temperature * (costs-jnp.argmin(costs,axis=0)),axis=0)
+            weight = jax.nn.softmax(-1/temperature * (costs-jnp.min(costs,axis=0)),axis=0)
             return weight
 
     return weight_fn
