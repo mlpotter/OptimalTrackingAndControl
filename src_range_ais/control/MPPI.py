@@ -97,12 +97,27 @@ def MPPI_ptb(stds,N, time_steps, num_traj, key,method="beta"):
         U_velocity = jax.random.uniform(key,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
         U_angular_velocity = jax.random.uniform(key,shape=(num_traj, N, time_steps,1)) * (av_max - av_min) + av_min
 
-    elif method=='normal':
+    elif method=='normal_biased':
         U_velocity = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * v_max + 1
         U_angular_velocity = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * av_max
 
+    elif method=='normal':
+        U_velocity = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * v_max
+        U_angular_velocity = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * av_max
 
     elif method=='mixture':
+        p = jnp.array([0.5,0.5])
+        select = jax.random.choice(key,a=2,shape=(num_traj,1,1,1),p=p)
+        U_velocity_normal = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * v_max + 1
+        U_angular_velocity_normal = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * av_max
+
+        U_velocity_beta = jax.random.beta(key,.5,.5,shape=(num_traj, N, time_steps,1)) * (v_max - v_min) + v_min
+        U_angular_velocity_beta = jax.random.beta(key, 0.5,0.5,shape=(num_traj, N, time_steps,1)) * (av_max - av_min) + av_min
+
+        U_velocity = jnp.where(select == 1, U_velocity_normal, U_velocity_beta)
+        U_angular_velocity = jnp.where(select == 1, U_angular_velocity_normal, U_angular_velocity_beta)
+
+    elif method=='mixture_biased':
         p = jnp.array([0.5,0.5])
         select = jax.random.choice(key,a=2,shape=(num_traj,1,1,1),p=p)
         U_velocity_normal = jax.random.normal(key,shape=(num_traj, N, time_steps,1)) * v_max + 1
@@ -142,7 +157,7 @@ def weighting(method="CE"):
             zeta = jnp.round(num_traj * (1-elite_threshold))
             score_zeta = jnp.quantile(costs,1-elite_threshold)
 
-            weight = 1/zeta * (costs < score_zeta)
+            weight = 1/zeta * (costs <= score_zeta)
             return weight/jnp.sum(weight,0)
 
 

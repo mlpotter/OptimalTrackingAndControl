@@ -2,8 +2,7 @@ import jax
 from jax import config
 config.update("jax_enable_x64", True)
 import jax.numpy as jnp
-from scipy.optimize import minimize,NonlinearConstraint,Bounds
-
+from jaxopt import ScipyMinimize,ScipyBoundedMinimize
 import numpy as np
 
 import imageio
@@ -40,13 +39,11 @@ if __name__ == "__main__":
     update_steps = 0
     FIM_choice = "radareqn"
     measurement_choice = "radareqn"
-    method = "Single_FIM_3D_action"
-    fim_method = "PCRLB"
+    mpc_method = "Single_FIM_Double_Collision"
+    fim_method = "Standard FIM"
 
     # Save frames as a GIF
-    gif_mpc_filename = "radar_optimal_constrained.gif"
-    gif_control_filename = "radar_optimal_constrained_controls.gif"
-
+    gif_filename = "radar_optimal_RICE.gif"
     gif_savepath = os.path.join("..", "..", "images","gifs")
     photo_dump = os.path.join("tmp_images")
     remove_photo_dump = True
@@ -58,7 +55,6 @@ if __name__ == "__main__":
     T = .1
     NT = 115
     N = 6
-    colors = plt.cm.jet(np.linspace(0, 1, N ))
 
     # ==================== RADAR CONFIGURATION ======================== #
     c = 299792458
@@ -86,7 +82,7 @@ if __name__ == "__main__":
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
     time_steps = 15
-    R_sensors_to_targets = 15.0
+    R_sensors_to_targets = 25.
     R_sensors_to_sensors = 1.5
     time_step_size = T
     max_velocity = 50.
@@ -115,17 +111,23 @@ if __name__ == "__main__":
     M, dm = qs.shape;
     N, dn = ps.shape;
 
-    theta = jnp.arcsin(z_elevation/R_sensors_to_targets)
-    radius_projected = R_sensors_to_targets * jnp.cos(theta)
-
     # ======================== MPC Assumptions ====================================== #
     gamma = 0.95
-    # paretos = jnp.ones((M,)) * 1 / M  # jnp.array([1/3,1/3,1/3])
-    # paretos = jnp.array([1/3,1/3,1/3,0,0])
+    # spread = 15 alpha=100 works
+    spread_target = 20.
+    spread_radar = 2.
+    speed_minimum = 3.
+    R_sensors_to_targets = 25.
+    R_sensors_to_sensors = 10.
 
-    # assert len(paretos) == M, "Pareto weights not equal to number of targets!"
-    # assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
+    alpha1 = 1. # FIM
+    alpha2 = 20. # Target - Radar Distance
+    alpha3 = 0. # Radar - Radar Distance
+    alpha4 = 1. # AIS control cost
+    alpha5 = 30. # speed cost
 
+    theta = jnp.arcsin(z_elevation/R_sensors_to_targets)
+    radius_projected = R_sensors_to_targets * jnp.cos(theta)
 
     sigmaQ = jnp.sqrt(10 ** 2);
     sigmaV = jnp.sqrt(9)
@@ -180,7 +182,7 @@ if __name__ == "__main__":
     # Js = jnp.stack([jnp.eye(d) for m in range(M)])
     J = jnp.eye(dm*M) #jnp.stack([jnp.eye(d) for m in range(M)])
 
-    Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-4)
+    Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
 
     if fim_method == "PCRLB":
         IM_fn = partial(Single_JU_FIM_Radar,A=A,Qinv=Qinv,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
@@ -192,87 +194,52 @@ if __name__ == "__main__":
 
     # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
 
-    MPC_obj = MPC_decorator(IM_fn=IM_fn,method=method)
+    MPC_obj = partial(MPC_decorator(IM_fn=IM_fn,method=mpc_method),
+                      alpha1=alpha1,alpha2=alpha2,alpha3=alpha3,radius_target=R_sensors_to_targets,spread_target=spread_target,spread_radar=spread_radar,radius_radar=spread_radar)
 
     print("Optimization START: ")
+    lbfgsb =  ScipyBoundedMinimize(fun=MPC_obj, method="L-BFGS-B",maxiter=1000,jit=True)
 
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     # time_step_sizes = jnp.tile(time_step_size, (N, 1))
 
-    dc = 2
-
-    U_upper = (jnp.ones((time_steps, dc)) * jnp.array([[max_velocity, max_angle_velocity]]))
-    U_lower = (jnp.ones((time_steps, dc)) * jnp.array([[min_velocity, min_angle_velocity]]))
+    U_upper = (jnp.ones((time_steps, 2)) * jnp.array([[max_velocity, max_angle_velocity]]))
+    U_lower = (jnp.ones((time_steps, 2)) * jnp.array([[min_velocity, min_angle_velocity]]))
 
     U_lower = jnp.tile(U_lower, jnp.array([N, 1, 1]))
     U_upper = jnp.tile(U_upper, jnp.array([N, 1, 1]))
     bounds = (U_lower, U_upper)
 
-    U_velocity = jax.random.uniform(key, shape=(N, time_steps, 1), minval=min_velocity + 25, maxval=max_velocity)
-    U_angular_velocity = jax.random.uniform(key, shape=(N, time_steps, 1), minval=min_angle_velocity,
-                                            maxval=max_angle_velocity)
-    U = jnp.concatenate((U_velocity, U_angular_velocity), axis=-1)
-
-    bnds = Bounds(U_lower.ravel(),U_upper.ravel())
-
-
-    @jit
-    def collision_constraint(U,radar_states, target_states):
-        _, _, radar_states, chis_trajectory = vmap(unicycle_kinematics, (0, 0, 0, None))(radar_states, U, chis,
-                                                                                          time_step_size)
-        radar_states = radar_states[:,1:,:]
-        N, _, dn = radar_states.shape
-        M, T, dm = target_states.shape
-
-        radar_states = jnp.concatenate((radar_states, jnp.zeros((N, T, 1))), -1)
-        radar_states = radar_states[:, :, :dm // 2]
-
-        target_positions = target_states[:, :, :dm // 2]
-
-        d = (target_positions[jnp.newaxis, :, :] - radar_states[:, jnp.newaxis, :])
-
-        distances = jnp.sqrt(jnp.sum(d ** 2, -1, keepdims=True))
-
-
-        return distances.ravel()
-
-
     m0 = qs
 
-
-
     J_list = []
-    images_mpc = []; images_control = []
+    frames = []
+    frame_names = []
     state_multiple_update_parallel = vmap(unicycle_kinematics, (0, 0, 0, None))
-    fig_mpc, axes_mpc = plt.subplots(1, 3, figsize=(15, 5))
-    fig_control,axes_control = plt.subplots(1,2,figsize=(10,5))
-
-    objective_jac = jit(jax.grad(MPC_obj, argnums=0))
-
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     for k in range(NT):
         start = time()
         qs_previous = m0
 
         m0 = (A @ m0.reshape(-1, 1)).reshape(M, dm)
+        target_states_rollout = jnp.stack([(jnp.linalg.matrix_power(A,t-1) @ m0.reshape(-1, M * dm).T).T.reshape(M, dm) for t in range(1,time_steps+1)])
 
-        m0_rollout = jnp.stack([(jnp.linalg.matrix_power(A, t - 1) @ m0.reshape(-1, M * dm).T).T.reshape(M, dm) for t in
-                                range(1, time_steps + 1)], axis=1)
+        U_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=min_velocity+5, maxval=max_velocity)
+        U_angular_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=min_angle_velocity,maxval=max_angle_velocity)
+        U = jnp.concatenate((U_velocity, U_angular_velocity), axis=-1)
 
         # U = jnp.zeros((N,2,time_steps))
-        objective = lambda U: MPC_obj(U=U.reshape(N,time_steps,dc),chis=chis,radar_states=ps,target_states=m0,time_step_size=time_step_size,J=J,A=A,gamma=gamma)
 
-        jac = lambda U: objective_jac(U.reshape(N, time_steps, dc),chis=chis,radar_states=ps,target_states=m0,time_step_size=time_step_size,J=J,A=A,gamma=gamma)
+        optim = lbfgsb.run(U, bounds=bounds,chis=chis, radar_states=ps, target_states=target_states_rollout,
+                       time_step_size=time_step_size,
+                       J=J,
+                       A=A,
+                       gamma=gamma,
+                       )
 
-        # constraint_t2s_fn = lambda U: collision_constraint(U.reshape(N,time_steps,dc),ps,m0_rollout)
-        # constraint_t2s = NonlinearConstraint(constraint_t2s_fn,R_sensors_to_targets,np.inf)
-        # con = [constraint_t2s]
-        constraint_t2s_fn = lambda U: collision_constraint(U.reshape(N,time_steps,dc),ps,m0_rollout) - R_sensors_to_targets
-        con = {'type':'ineq','fun':constraint_t2s_fn}
+        print("Optim Status: ",optim.state.success)
+        U = optim.params
 
-        opt_sol = minimize(fun=objective,x0=U.ravel(),method="SLSQP",bounds=bnds,jac=jac,constraints=con
-                           ,options={"maxiter":1000,"disp":True})
-        U = opt_sol.x.reshape(N,time_steps,dc)
-        # obj_value = opt_sol.f
         _, _, Sensor_Positions, Sensor_Chis = state_multiple_update_parallel(ps,
                                                                                             U,
                                                                                             chis, time_step_size)
@@ -298,94 +265,66 @@ if __name__ == "__main__":
 
         save_time = time()
         if (k+1)%frame_skip == 0:
-            # fig_mpc.minorticks_off()
-
-            # Target "Tracking"
+            # fig.minorticks_off()
             for m in range(M):
-                axes_mpc[0].add_patch(
+                axes[0].add_patch(
                     Circle(m0[m, :], radius_projected, edgecolor="green", fill=False, lw=1,
                            linestyle="--", label="_nolegend_"))
 
-            axes_mpc[0].plot(qs_previous[:,0], qs_previous[:,1], 'g.',label="_nolegend_")
-            axes_mpc[0].plot(m0[:,0], m0[:,1], 'go',label="Targets")
-            axes_mpc[0].plot(ps_init[:,0], ps_init[:,1], 'md',label="Sensor Init")
-            axes_mpc[0].plot(ps[:,0], ps[:,1], 'rx',label="Sensors Next Position")
-            axes_mpc[0].plot(Sensor_Positions[:,0,0], Sensor_Positions[:,0,1], 'r*',label="Sensor Position")
-            axes_mpc[0].plot(Sensor_Positions[:,1:,0].T, Sensor_Positions[:,1:,1].T, 'r.-',label="_nolegend_")
-            axes_mpc[0].plot([],[],"r.-",label="Sensor Planned Path")
+            axes[0].plot(qs_previous[:,0], qs_previous[:,1], 'g.',label="_nolegend_")
+            axes[0].plot(m0[:,0], m0[:,1], 'go',label="Targets")
+            axes[0].plot(ps_init[:,0], ps_init[:,1], 'md',label="Sensor Init")
+            axes[0].plot(ps[:,0], ps[:,1], 'rx',label="Sensors Next Position")
+            axes[0].plot(Sensor_Positions[:,0,0], Sensor_Positions[:,0,1], 'r*',label="Sensor Position")
+            axes[0].plot(Sensor_Positions[:,1:,0].T, Sensor_Positions[:,1:,1].T, 'r.-',label="_nolegend_")
+            axes[0].plot([],[],"r.-",label="Sensor Planned Path")
 
-            axes_mpc[0].legend(bbox_to_anchor=(0.7, 0.95))
-            axes_mpc[0].set_title(f"k={k}")
-            axes_mpc[0].axis('equal')
+            axes[0].legend(bbox_to_anchor=(0.7, 0.95))
+            axes[0].set_title(f"k={k}")
+            axes[0].axis('equal')
+
 
             qx,qy,logdet_grid = FIM_Visualization(ps=ps, qs=m0,
                                                   Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW,
                                                   N=1000)
 
-            axes_mpc[1].contourf(qx, qy, logdet_grid, levels=20)
-            axes_mpc[1].scatter(ps[:, 0], ps[:, 1], s=50, marker="x", color="r")
+            axes[1].contourf(qx, qy, logdet_grid, levels=20)
+            axes[1].scatter(ps[:, 0], ps[:, 1], s=50, marker="x", color="r")
             #
-            axes_mpc[1].scatter(m0[:, 0], m0[:, 1], s=50, marker="o", color="g")
-            axes_mpc[1].set_title("Instant Time Objective Function Map")
-            axes_mpc[1].axis('equal')
+            axes[1].scatter(m0[:, 0], m0[:, 1], s=50, marker="o", color="g")
+            axes[1].set_title("Instant Time Objective Function Map")
+            axes[1].axis('equal')
 
-            axes_mpc[2].plot(jnp.array(J_list),"b-",label="Total FIM")
-            # axes_mpc[2].plot(jnp.array(J_list),"r-",label="Individual FIM")
-            axes_mpc[2].set_ylabel("Target logdet FIM (Higher is Better)")
-            axes_mpc[2].set_title(f"Avg MPPI LogDet FIM={np.round(J_list[-1])}")
-            axes_mpc[2].set_xlabel("Time Step")
+            axes[2].plot(jnp.array(J_list),"b-",label="Total FIM")
+            # axes[2].plot(jnp.array(J_list),"r-",label="Individual FIM")
+            axes[2].set_ylabel("Target logdet FIM (Higher is Better)")
+            axes[2].set_title(f"Avg MPPI LogDet FIM={np.round(J_list[-1])}")
+            axes[2].set_xlabel("Time Step")
 
 
             filename = f"frame_{k}.png"
-            images_mpc.append(os.path.join(photo_dump, filename))
+            fig.tight_layout()
+            fig.savefig(os.path.join(photo_dump, filename))
 
-            fig_mpc.tight_layout()
-            fig_mpc.savefig(os.path.join(photo_dump, filename))
-
-            axes_mpc[0].cla()
-            axes_mpc[1].cla()
-            axes_mpc[2].cla()
-
-            # record the controls over time ...
-            file_control = os.path.join(photo_dump, f"scipy_control_{k}.png")
-            images_control.append(file_control)
-            for n in range(N):
-                axes_control[0].plot(U[n, :, 0].T, '.-', color=colors[n], label="_nolegend_")
-                axes_control[1].plot(U[n, :, 1].T, '.-', color=colors[n], label="_nolegend_")
-
-            axes_control[0].set_title("Velocity [m/s]")
-            axes_control[0].set_xlabel("Time Step")
-            axes_control[1].set_title("Ang Velocity [rad/s]")
-            axes_control[1].set_xlabel("Time Step")
-            fig_control.suptitle(f"Step={k}")
-            fig_control.tight_layout()
-            fig_control.savefig(file_control)
-            axes_control[0].cla()
-            axes_control[1].cla()
-
+            frame_names.append(os.path.join(photo_dump, filename))
+            axes[0].cla()
+            axes[1].cla()
+            axes[2].cla()
         save_time = time() - save_time
         print("Figure Save Time: ",save_time)
 
-        U = jnp.roll(U,-1,axis=1)
-
-
-    plt.figure()
-    plt.plot(jnp.array(J_list))
-    plt.show()
+    fig.figure()
+    fig.plot(jnp.array(J_list))
+    fig.show()
     print("lol")
 
-    frames = []
-    for frame_name in images_mpc:
+
+    for frame_name in frame_names:
         frames.append(imageio.imread(frame_name))
 
-    imageio.mimsave(os.path.join(gif_savepath, gif_mpc_filename), frames, duration=0.25)
-
-    frames = []
-    for frame_name in images_control:
-        frames.append(imageio.imread(frame_name))
-
-    imageio.mimsave(os.path.join(gif_savepath, gif_control_filename), frames, duration=0.25)
-
+    imageio.mimsave(os.path.join(gif_savepath, gif_filename), frames, duration=0.25)
     if remove_photo_dump:
-        for filename in images_mpc+images_control:
+        for filename in glob.glob(os.path.join(photo_dump, "frame_*")):
             os.remove(filename)
+
+

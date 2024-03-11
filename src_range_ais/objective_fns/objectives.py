@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 from jax import jit,vmap
-from src_range.control.Sensor_Dynamics import unicycle_kinematics
+from src_range_ais.control.Sensor_Dynamics import unicycle_kinematics
 import jax
 from jax.tree_util import Partial as partial
 def MPC_decorator(IM_fn,method="action"):
@@ -151,7 +151,7 @@ def MPC_decorator(IM_fn,method="action"):
             _,J_info = jnp.linalg.slogdet(Js)
             gammas = gamma**(jnp.arange(horizon))
             J_info = jnp.sum(gammas*J_info)
-            MPC_obj = (J_info*alpha1- J_coll_target*alpha2- J_coll_radar*alpha3)/jnp.sum(gammas)
+            MPC_obj = (J_info*alpha1 - J_coll_target*alpha2 - J_coll_radar*alpha3)/jnp.sum(gammas)
 
             return -MPC_obj
 
@@ -186,8 +186,8 @@ def collision_penalty(radar_states,target_states,radius,spread):
 
     distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
 
-    coll_obj = jnp.exp(-distances / spread) * (distances < radius)
-    # coll_obj = jnp.heaviside(-(distances - radius), 1.0) * jnp.exp(-distances / spread)
+    coll_obj = jnp.exp(-distances / spread)  * (distances < radius)
+
     return jnp.sum(coll_obj)
 
 @jit
