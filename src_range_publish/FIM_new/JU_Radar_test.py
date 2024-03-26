@@ -20,9 +20,8 @@ from copy import deepcopy
 import os
 import glob
 
-from src_range.FIM_new.FIM_RADAR import *
-from src_range.objective_fns.objectives import *
-from src_range.utils import NoiseParams
+from src_range_publish.FIM_new.FIM_RADAR import *
+from src_range_publish.objective_fns.objectives import *
 
 
 config.update("jax_enable_x64", True)
@@ -53,12 +52,12 @@ if __name__ == "__main__":
     tail_size = 5
     plot_size = 15
     T = .1
-    NT = 115
+    NT = 250
     N = 6
 
     # ==================== RADAR CONFIGURATION ======================== #
     c = 299792458
-    fc = 1e6;
+    fc = 1e9;
     Gt = 2000;
     Gr = 2000;
     lam = c / fc
@@ -82,40 +81,42 @@ if __name__ == "__main__":
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
     time_steps = 15
-    time_step_size = 0.1
+    dt = 0.1
     control_constraints = UNI_DI_U_LIM
     kinematic_model = unicycle_kinematics_double_integrator
-    kinematic_model_vmap = vmap(kinematic_model, (0, 0, None))
+
 
     # ==================== MPPI CONFIGURATION ================================= #
     # ps = place_sensors([-100,100],[-100,100],N)
     key, subkey = jax.random.split(key)
     #
-    ps = jax.random.uniform(key, shape=(N, 2), minval=-100, maxval=100)
+    ps = jnp.concatenate((jax.random.uniform(key, shape=(N, 2), minval=-100, maxval=100),jnp.zeros((N,1))),axis=-1)
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
-    radar_state = jnp.column_stack((ps,chis))
+    vs = jnp.zeros((ps.shape[0],1))
+    avs = jnp.zeros((ps.shape[0],1))
+    radar_state = jnp.column_stack((ps,chis,vs,avs))
+
     ps_init = deepcopy(ps)
     # qs = jnp.array([[0.0, -0.0, 25., 20], #,#,
     #                 [-50.4,30.32,-20,-10], #,
     #                 [10,10,10,10],
     #                 [20,20,5,-5]])
-    z_elevation=10
-    qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
-                    [-50.4,30.32,z_elevation,-20,-10,0], #,
-                    [10,10,z_elevation,10,10,0],
-                    [20,20,z_elevation,5,-5,0]])
+    z_elevation=150
+    qs = jnp.array([[0.0, -0.0,z_elevation, 15., 10,0], #,#,
+                    [-50.4,30.32,z_elevation,-10,-5,0], #,
+                    [10,10,z_elevation,5,5,0],
+                    [20,20,z_elevation,2.5,-2.5,0]])
 
     M, dm = qs.shape;
     N, dn = ps.shape;
 
     # ======================== MPC Assumptions ====================================== #
-    gamma = 0.9
+    gamma = 0.95
     R_sensors_to_targets = 25
     R_sensors_to_sensors = 10
 
 
     sigmaQ = jnp.sqrt(10 ** 0);
-    sigmaV = jnp.sqrt(3)
     sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
 
     C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * fc**2) * 1/K
@@ -142,20 +143,20 @@ if __name__ == "__main__":
     #     [0, (T ** 3) / 2, 0, (T ** 2)]
     # ]) * sigmaQ ** 2
 
-    A_single = jnp.array([[1., 0, 0, time_step_size, 0, 0],
-                   [0, 1., 0, 0, time_step_size, 0],
-                   [0, 0, 1, 0, 0, time_step_size],
+    A_single = jnp.array([[1., 0, 0, dt, 0, 0],
+                   [0, 1., 0, 0, dt, 0],
+                   [0, 0, 1, 0, 0, dt],
                    [0, 0, 0, 1, 0, 0],
                    [0, 0, 0, 0, 1., 0],
                    [0, 0, 0, 0, 0, 1]])
 
     Q_single = jnp.array([
-        [(time_step_size ** 4) / 4, 0, 0, (time_step_size ** 3) / 2, 0, 0],
-        [0, (time_step_size ** 4) / 4, 0, 0, (time_step_size** 3) / 2, 0],
-        [0, 0, (time_step_size**4)/4, 0, 0, (time_step_size**3) / 2],
-        [(time_step_size ** 3) / 2, 0, 0, (time_step_size ** 2), 0, 0],
-        [0, (time_step_size ** 3) / 2, 0, 0, (time_step_size ** 2), 0],
-        [0, 0, (time_step_size**3) / 2, 0, 0, (time_step_size**2)]
+        [(dt ** 4) / 4, 0, 0, (dt ** 3) / 2, 0, 0],
+        [0, (dt ** 4) / 4, 0, 0, (dt** 3) / 2, 0],
+        [0, 0, (dt**4)/4, 0, 0, (dt**3) / 2],
+        [(dt ** 3) / 2, 0, 0, (dt ** 2), 0, 0],
+        [0, (dt ** 3) / 2, 0, 0, (dt ** 2), 0],
+        [0, 0, (dt**3) / 2, 0, 0, (dt**2)]
     ]) * sigmaQ ** 2
 
     A = jnp.kron(jnp.eye(M), A_single);
@@ -167,22 +168,21 @@ if __name__ == "__main__":
     # Js = jnp.stack([jnp.eye(d) for m in range(M)])
     J = jnp.eye(dm*M) #jnp.stack([jnp.eye(d) for m in range(M)])
 
-    Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
+    Qinv = jnp.linalg.solve(Q + jnp.eye(nx)**1e-4,jnp.eye(nx))#jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
 
     if fim_method == "PCRLB":
-        IM_fn = partial(Single_JU_FIM_Radar,A=A,Qinv=Qinv,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaV=sigmaV,sigmaW=sigmaW)
+        IM_fn = partial(Single_JU_FIM_Radar, A=A, Qinv=Qinv, C=C)
+
     elif fim_method == "Standard FIM":
-        IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
+        IM_fn = partial(Single_FIM_Radar, C=C)
 
 
-    # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
-
-    MPC_obj = MPC_decorator(IM_fn=IM_fn,kinematic_model=kinematic_model,time_step_size=time_step_size,gamma=gamma,method=mpc_method)
+    MPC_obj = MPC_decorator(IM_fn=IM_fn,kinematic_model=kinematic_model,dt=dt,gamma=gamma,method=mpc_method)
 
     print("Optimization START: ")
     lbfgsb =  ScipyBoundedMinimize(fun=MPC_obj, method="L-BFGS-B",jit=True)
 
-    # time_step_sizes = jnp.tile(time_step_size, (N, 1))
+    # dts = jnp.tile(dt, (N, 1))
 
     U_upper = (jnp.ones((time_steps, 2)) * control_constraints[1].reshape(1,-1))
     U_lower = (jnp.ones((time_steps, 2)) * control_constraints[0].reshape(1,-1))
@@ -204,9 +204,9 @@ if __name__ == "__main__":
 
         m0 = (A @ m0.reshape(-1, 1)).reshape(M, dm)
 
-        U_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=control_constraints[0,0]+5, maxval=control_constraints[1,0])
-        U_angular_velocity = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=control_constraints[1,0],maxval=control_constraints[1,1])
-        U = jnp.concatenate((U_velocity, U_angular_velocity), axis=-1)
+        U1 = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=control_constraints[0,0]+5, maxval=control_constraints[1,0])
+        U2 = jax.random.uniform(key, shape=(N, time_steps, 1 ), minval=control_constraints[1,0],maxval=control_constraints[1,1])
+        U = jnp.concatenate((U1, U2), axis=-1)
 
         # U = jnp.zeros((N,2,time_steps))
 
@@ -215,11 +215,11 @@ if __name__ == "__main__":
                        A=A,
                        ).params
 
-        radar_states = kinematic_model_vmap( U ,jnp.expand_dims(radar_state, 1), time_step_size)
+        radar_states = kinematic_model( U ,radar_state, dt)
 
         radar_state = radar_states[:,1]
 
-
+        print("Vmin: ",radar_states[:, 1][:, 4].min(),"Vmax: ",radar_states[:, 1][:, 4].max())
         # print(ps.shape,chis.shape,ps.squeeze().shape)
         # ps = ps.squeeze()
         # chis = chis.squeeze()
@@ -253,8 +253,8 @@ if __name__ == "__main__":
             axes[0].set_title(f"k={k}")
             axes[0].axis('equal')
 
-            qx,qy,logdet_grid = FIM_Visualization(ps=radar_state[:,:2], qs=m0,
-                                                  Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW,
+            qx,qy,logdet_grid = FIM_Visualization(ps=radar_state[:,:3], qs=m0,
+                                                  C=C,
                                                   N=1000)
 
             axes[1].contourf(qx, qy, logdet_grid, levels=20)

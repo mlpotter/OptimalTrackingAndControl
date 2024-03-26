@@ -9,10 +9,6 @@ from jaxopt import ScipyMinimize
 
 
 from src_range.FIM_new.FIM_RADAR import Single_JU_FIM_Radar,Single_FIM_Radar,FIM_Visualization
-from src_range.objective_fns.objectives import MPC_decorator,control_penalty,collision_penalty,self_collision_penalty,speed_penalty
-from src_range.utils import NoiseParams
-from src_range.control.MPPI import *
-
 from src_range.control.Sensor_Dynamics import UNI_SI_U_LIM,UNI_DI_U_LIM,unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator
 
 import matplotlib
@@ -20,7 +16,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import imageio
 from matplotlib.patches import Circle
+from matplotlib.collections import LineCollection
 
+from sklearn.covariance import OAS
 
 from tqdm import tqdm
 from time import time
@@ -29,7 +27,9 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-
+from src_range.control.MPPI import MPPI_scores_wrapper,weighting,MPPI_wrapper
+from src_range.objective_fns.objectives import *
+from copy import deepcopy
 
 import os
 
@@ -48,9 +48,9 @@ if __name__ == "__main__":
     np.random.seed(123)
 
     gif_savepath = os.path.join("..", "..", "images", "gifs")
-    img_savepath = os.path.join("..","..","images")
     tmp_img_savepath = os.path.join("tmp_images")
-    os.makedirs("tmp_images",exist_ok=True)
+    img_savepath = os.path.join("..","..","images")
+    os.makedirs(tmp_img_savepath,exist_ok=True)
 
     # Experiment Choice
     update_steps = 0
@@ -58,7 +58,6 @@ if __name__ == "__main__":
     frame_skip = 1
     tail_size = 5
     plot_size = 15
-
     NT = 115
     MPPI_FLAG = True
     PRUNE_FLAG = False
@@ -66,7 +65,8 @@ if __name__ == "__main__":
     MPPI_ITER_VISUALIZE = True
 
     N = 6
-    colors = plt.cm.jet(np.linspace(0, 1, N ))
+    colors = plt.cm.jet(np.linspace(0, 1, N))
+
 
     # ==================== RADAR CONFIGURATION ======================== #
     c = 299792458
@@ -92,23 +92,22 @@ if __name__ == "__main__":
 
     # ==================== SENSOR DYNAMICS CONFIGURATION ======================== #
     time_steps = 15
-    time_step_size = 0.05
-    control_constraints = UNI_SI_U_LIM
-    kinematic_model = unicycle_kinematics_single_integrator
+    time_step_size = 0.1
+    control_constraints = UNI_DI_U_LIM
+    kinematic_model = unicycle_kinematics_double_integrator
     kinematic_model_vmap = vmap(kinematic_model, (0, 0, None))
 
 
     # ==================== MPPI CONFIGURATION ================================= #
-    stds = jnp.array([[5,5],
-                      [-90* jnp.pi/180, 90 * jnp.pi/180]])
-
-    cov_timestep = jnp.array([[stds[0,1]**2,0],[0,stds[1,1]**2]])
+    v_std = 25
+    av_std = jnp.pi/180 * 45
+    cov_timestep = jnp.array([[v_std**2,0],[0,av_std**2]])
     cov_traj = jax.scipy.linalg.block_diag(*[cov_timestep for t in range(time_steps)])
-    # cov = jax.scipy.linalg.block_diag(*[cov_traj for n in range(N)])
-    cov = jnp.stack([cov_traj for n in range(N)])
-
-    v_init = 50
-    av_init = 180 * jnp.pi/180
+    cov = jax.scipy.linalg.block_diag(*[cov_traj for n in range(N)])
+    # cov = jnp.stack([cov_traj for n in range(N)])
+    v_init = 0
+    av_init = 0 * jnp.pi/180
+    mu = jnp.tile(jnp.array([v_init,av_init]),(N*time_steps,))
 
     num_traj = 250
     MPPI_iterations = 50
@@ -117,9 +116,10 @@ if __name__ == "__main__":
     u_ptb_method = "normal"
     fim_method = "Standard FIM"
 
+
     # ==================== AIS CONFIGURATION ================================= #
     temperature = 0.1
-    elite_threshold = 0.97
+    elite_threshold = 0.9
     AIS_method = "CE"
 
     from copy import deepcopy
@@ -127,23 +127,23 @@ if __name__ == "__main__":
     #
     ps = jax.random.uniform(key, shape=(N, 2), minval=-100, maxval=100)
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
-    radar_state = jnp.column_stack((ps,chis))
+    vs = jnp.zeros((ps.shape[0],1))
+    avs = jnp.zeros((ps.shape[0],1))
+    radar_state = jnp.column_stack((ps,chis,vs,avs))
 
-    ps_init = deepcopy(radar_state[:,:2])
+    ps_init = deepcopy(ps)
     z_elevation = 10
     # qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
     #                 [-50.4,30.32,z_elevation,-20,-10,0], #,
-    #                 [10,10,z_elevation,10,10,0],
+    #                 # [10,10,z_elevation,10,10,0],
     #                 [20,20,z_elevation,5,-5,0]])
-    qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
-                    [-100.4,-30.32,z_elevation,20,-10,0], #,
-                    [30,30,z_elevation,-10,-10,0]])#,
-                    # [-20,60,z_elevation,-15,15,0]])
     # qs = jnp.array([[0.0, -0.0,z_elevation, 0., 0,0], #,#,
     #                 [-50.4,30.32,z_elevation,-0,-0,0], #,
     #                 [10,10,z_elevation,0,0,0],
     #                 [20,20,z_elevation,0,0,0]])
-
+    qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
+                    [-100.4,-30.32,z_elevation,20,-10,0], #,
+                    [30,30,z_elevation,-10,-10,0]])#,
 
     M, dm = qs.shape;
     N , dn = ps.shape;
@@ -161,7 +161,7 @@ if __name__ == "__main__":
     print("C=",C)
 
     # ============================ MPC Settings =====================================#
-    gamma = 0.95
+    gamma = 0.9
     # spread = 15 alpha=100 works
     spread_target = 20
     spread_radar = 2
@@ -182,9 +182,8 @@ if __name__ == "__main__":
     assert len(paretos) == M, "Pareto weights not equal to number of targets!"
     assert (jnp.sum(paretos) <= (1 + 1e-5)) and (jnp.sum(paretos) >= -1e-5), "Pareto weights don't sum to 1!"
 
-    # ========================== Target Dynamics =====================================#
     sigmaQ = np.sqrt(10 ** -1)
-    sigmaV = jnp.sqrt(9)
+    sigmaV = jnp.sqrt(1)
 
     A_single = jnp.array([[1., 0, 0, time_step_size, 0, 0],
                    [0, 1., 0, 0, time_step_size, 0],
@@ -213,16 +212,13 @@ if __name__ == "__main__":
 
     # IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
     # IM_fn(ps,qs[[0],:],Js=Js)
-    Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-4)
+    Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
 
     if fim_method == "PCRLB":
         IM_fn = partial(Single_JU_FIM_Radar, A=A, Qinv=Qinv, Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, fc=fc, c=c,
                         sigmaV=sigmaV, sigmaW=sigmaW)
     elif fim_method == "Standard FIM":
         IM_fn = partial(Single_FIM_Radar,Pt=Pt,Gt=Gt,Gr=Gr,L=L,lam=lam,rcs=rcs,fc=fc,c=c,sigmaW=sigmaW)
-
-
-    IM_fn(ps,qs,J=J)
 
     # IM_fn_parallel = vmap(IM_fn, in_axes=(None, 0, 0))
 
@@ -237,25 +233,25 @@ if __name__ == "__main__":
     elif AIS_method == "information":
         weight_fn = partial(weighting(AIS_method),temperature=temperature)
 
+    # weight_info =partial(weighting("information"),temperature=temperature)
+
+    chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
+    # time_step_sizes = jnp.tile(time_step_size, (N, 1))
+
     collision_penalty_vmap = jit( vmap(collision_penalty, in_axes=(0, None, None, None)))
     self_collision_penalty_vmap = jit(vmap(self_collision_penalty, in_axes=(0, None, None)))
     speed_penalty_vmap = jit(vmap(speed_penalty, in_axes=(0, None)))
 
-
-    U_lower = (jnp.ones((time_steps, 2)) * control_constraints[0].reshape(1,-1))
-    U_upper = (jnp.ones((time_steps, 2)) * control_constraints[1].reshape(1,-1))
-
-    U_lower = jnp.tile(U_lower, jnp.array([N, 1, 1]))
-    U_upper = jnp.tile(U_upper, jnp.array([N, 1, 1]))
-
-
     m0 = qs
+
     FIMs = []
     qs_previous = None
 
     U_V = jnp.ones((N,time_steps,1)) * v_init
     U_W = jnp.ones((N,time_steps,1)) * av_init
-    U_Nom =jnp.concatenate((U_V,U_W),axis=-1)
+    U =jnp.concatenate((U_V,U_W),axis=-1)
+    mu_bias = jnp.zeros_like(U)
+    mu_bias = mu_bias.at[:,:,0].set(1)
 
     fig_mppi_debug,axes_mppi_debug = plt.subplots(1,1,figsize=(10,10))
     fig_control_debug,axes_control_debug = plt.subplots(1,2,figsize=(10,5))
@@ -282,8 +278,6 @@ if __name__ == "__main__":
     images_control_debug = [];
     images_costs_debug = [];
 
-
-
     for k in range(NT):
         print(f"\n Step {k} MPPI Iteration: ")
         qs_previous = m0
@@ -293,79 +287,116 @@ if __name__ == "__main__":
         mppi_round_time_start = time()
 
         target_states_rollout = jnp.stack([(jnp.linalg.matrix_power(A,t-1) @ m0.reshape(-1, M * dm).T).T.reshape(M, dm) for t in range(1,time_steps+1)])
-        U_BEST =  U_Nom
 
+        U_prime = deepcopy(U)
+        cov_prime = deepcopy(cov)
+        best_cost = jnp.inf
         for mppi_iter in range(MPPI_iterations):
             start = time()
             key, subkey = jax.random.split(key)
 
             mppi_start = time()
-            U_ptb = MPPI_ptb(stds,N, time_steps, num_traj, key,method=u_ptb_method)
-            U_MPPI = jnp.expand_dims(U_Nom,0) + U_ptb
+
+            E = jax.random.multivariate_normal(key, mean=jnp.zeros_like(U).ravel(), cov=cov_prime, shape=(num_traj,),method="svd")
+
+            # simulate the model with the trajectory noise samples
+            V = U_prime + E.reshape(num_traj,N,time_steps,2)
 
             mppi_rollout_start = time()
-            radar_states,radar_states_MPPI = MPPI(U_nominal=U_Nom,
-                                                               U_MPPI=U_MPPI,radar_state=radar_state)
+
+            radar_states,radar_states_MPPI = MPPI(U_nominal=U_prime,
+                                                               U_MPPI=V,radar_state=radar_state)
+
             mppi_rollout_end = time()
 
+
+            # Score all the rollouts
             mppi_score_start = time()
-            cost_trajectory = MPPI_scores(radar_state, target_states_rollout, U_MPPI,
+            cost_trajectory = MPPI_scores(radar_state, target_states_rollout, V,
                                       A=A,J=J)
+
             mppi_score_end = time()
+
 
             cost_collision_r2t = jnp.sum(jnp.column_stack([collision_penalty_vmap(radar_states_MPPI[:,:,t,:2],target_states_rollout[t-1],R_sensors_to_targets,spread_target) for t in range(1,time_steps+1)]) * (gamma**(jnp.arange(time_steps))) / jnp.sum(gamma**(jnp.arange(time_steps))) , axis=-1)
 
             cost_collision_r2r = jnp.sum(jnp.column_stack([self_collision_penalty_vmap(radar_states_MPPI[:,:,t,:2],R_sensors_to_sensors,spread_radar) for t in range(1,time_steps+1)]) * (gamma**(jnp.arange(time_steps))) / jnp.sum(gamma**(jnp.arange(time_steps))) , axis=-1)
 
-            cost_control = control_penalty(U_prime=U_Nom,U=U_BEST,V=U_MPPI,cov=cov,dTraj=num_traj,dN=N,dC=2)
+            cost_control = ((U_prime - U).reshape(1,1,-1) @ jnp.linalg.inv(cov) @ (V).reshape(num_traj, -1,1)).ravel()
 
-            cost_speed = jnp.sum(jnp.column_stack([speed_penalty_vmap(U_MPPI[:,:,t,0],speed_minimum) for t in range(time_steps)]) * (gamma**(jnp.arange(time_steps))) / jnp.sum(gamma**(jnp.arange(time_steps))) , axis=-1)
+            cost_speed = jnp.sum(jnp.column_stack([speed_penalty_vmap(V[:,:,t,0],speed_minimum) for t in range(time_steps)]) * (gamma**(jnp.arange(time_steps))) / jnp.sum(gamma**(jnp.arange(time_steps))) , axis=-1)
 
 
+            # print(speed_cost.mean(),speed_cost.mean()*alpha2)
 
-            # speed_penalty_vmap(U_MPPI[:,:,0],speed_minimum)
+            cost_MPPI = alpha1*cost_trajectory + alpha2*cost_collision_r2t + alpha3 * cost_collision_r2r * temperature * (1-alpha4) * cost_control + alpha5*cost_speed
 
-            cost_MPPI = alpha1*cost_trajectory + alpha2*cost_collision_r2t + alpha3 * cost_collision_r2r * temperature * (1-alpha4) * cost_control.mean(axis=1).squeeze() + alpha5*cost_speed
+
 
             min_idx = jnp.argmin(cost_MPPI)
             lowest_cost = cost_MPPI[min_idx]
 
-            if lowest_cost < best_mppi_iter_score:
-                if k == 0:
-                    print(f"First Iter Best Score {mppi_iter}: ",-lowest_cost)
-                best_mppi_iter_score = lowest_cost
-                U_BEST =  jnp.clip(U_MPPI[min_idx],U_lower,U_upper)
-
-                cost_speed_best = cost_speed
-                cost_collision_r2r_best = cost_collision_r2r
-                cost_collision_r2t_best = cost_collision_r2t
-                cost_trajectory_best = cost_trajectory
-
-            scores_MPPI_weight = weight_fn(cost_MPPI)
 
 
-            delta_actions = U_MPPI - U_Nom
-            # U_Nom = jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1), axis=0)
-            U_Nom += jnp.sum(delta_actions * scores_MPPI_weight.reshape(-1, 1, 1, 1), axis=0)
-            U_Nom = jnp.clip(U_Nom,U_lower,U_upper)
+            weights = weight_fn(cost_MPPI)
 
+            neff = 1/(jnp.sum(weights**2))
+
+            # if neff < N*time_steps:
+            #     print("Weight Tempering")f
+            #     weights = weights ** (1 / 2)
+            #     weights = weights / jnp.sum(weights,0)
+            #
+            #     neff = 1 / (jnp.sum(weights ** 2))
+
+            if jnp.isnan(cost_MPPI).any():
+                print("BREAK!")
+                break
+
+            # print(f"Neff Samples {int(neff)}")
+
+            # delta_actions = U_MPPI - U
+            # U = jnp.sum(U_MPPI * weights.reshape(-1, 1, 1, 1), axis=0)
+            if (mppi_iter < (MPPI_iterations-1)): #and (jnp.sum(cost_MPPI*weights) < best_cost):
+                # U += jnp.sum(delta_actions * weights.reshape(-1, 1, 1, 1), axis=0)
+                best_cost = jnp.sum(cost_MPPI*weights)
+                neffs_debug[mppi_iter] = 1/ (jnp.sum(weights**2))
+                U_copy = deepcopy(U_prime)
+                U_prime = U_prime + jnp.sum(weights.reshape(num_traj,1,1,1) * E.reshape(num_traj,N,time_steps,2),axis=0)
+
+                # diff = U_MPPI.reshape(num_traj,N,-1) - U.reshape(N,-1)
+
+                # cov_prime = jnp.sum(weights.reshape(-1,1,1) *(E[:,:,jnp.newaxis] @ E[:,jnp.newaxis,:]),axis=0) + jnp.eye(cov.shape[-1])*1e-4
+                oas = OAS(assume_centered=True).fit(E[weights != 0])
+                cov_prime = jnp.array(oas.covariance_)
+
+
+                if k==0:
+                    print(f"MPPI Shrinkage {oas.shrinkage_} @ Subiter={mppi_iter}")
+
+            #
             if k==0 and MPPI_ITER_VISUALIZE:
-                neffs_debug[mppi_iter] = 1/ (jnp.sum(scores_MPPI_weight**2))
+                neffs_debug[mppi_iter] = 1/ (jnp.sum(weights**2))
                 # save subiterations of MPPI
                 file_mppi_debug = os.path.join(tmp_img_savepath, f"MPPI_subiteration_{mppi_iter}.png")
                 images_mppi_debug.append(file_mppi_debug)
                 axes_mppi_debug.plot(qs_previous[:,0], qs_previous[:,1], 'g.',label="Target Init Position")
                 axes_mppi_debug.plot(m0[:,0], m0[:,1], 'go',label="Target Position")
-                radar_states_debug = vmap(kinematic_model, (0, 0, None))(U_Nom,np.expand_dims(radar_state, 1), time_step_size)
-                radar_states_best = vmap(kinematic_model, (0, 0, None))(U_BEST, jnp.expand_dims(radar_state, 1),time_step_size)
+                radar_states_debug = kinematic_model_vmap(U,np.expand_dims(radar_state, 1), time_step_size)
+                radar_states_best = kinematic_model_vmap(U_prime, jnp.expand_dims(radar_state, 1),time_step_size)
 
                 if MPPI_VISUALIZE:
-                    for n in range(N):
-                        axes_mppi_debug.plot(radar_states_MPPI[:, n, :, 0].T, radar_states_MPPI[:, n, :, 1].T, 'b-',label="_nolegend_")
+                    # for n in range(N):
+                    mppi_colors = (cost_MPPI - cost_MPPI.min())/(cost_MPPI.ptp())
+                    mppi_color_idx = np.argsort(mppi_colors)[::-1]
+                    segs = radar_states_MPPI[mppi_color_idx].reshape(num_traj*N,time_steps+1,-1,order='F')
+                    segs = LineCollection(segs[:,:,:2],colors=plt.cm.jet(np.tile(mppi_colors[mppi_color_idx],(N,1)).T.reshape(-1,order='F')),alpha=0.5)
+                    # axes_mppi_debug.plot(radar_states_MPPI[:, n, :, 0].T, radar_states_MPPI[:, n, :, 1].T, 'b-',label="_nolegend_")
+                    axes_mppi_debug.add_collection(segs)
 
                 axes_mppi_debug.plot(radar_states_debug[:,0,0], radar_states_debug[:,0,1], 'r*',label="Sensor Position")
                 axes_mppi_debug.plot(radar_states_debug[:,1:,0].T, radar_states_debug[:,1:,1].T, 'r-',label="_nolegend_")
-                axes_mppi_debug.plot(radar_states_best[:,1:,0].T, radar_states_best[:,1:,1].T, color="lime",linestyle='-',label="_nolegend_")
+                axes_mppi_debug.plot(radar_states_best[:,1:,0].T, radar_states_best[:,1:,1].T, color="magenta",linestyle='--',label="_nolegend_")
 
                 fig_mppi_debug.suptitle(f"MPPI Subiteration {mppi_iter}")
                 fig_mppi_debug.tight_layout()
@@ -376,8 +407,8 @@ if __name__ == "__main__":
                 file_control_debug= os.path.join(tmp_img_savepath, f"MPPI_control_subiteration_{mppi_iter}.png")
                 images_control_debug.append(file_control_debug)
                 for n in range(N):
-                    axes_control_debug[0].plot(U_BEST[n, :, 0].T, '.-',color=colors[n],label="_nolegend_")
-                    axes_control_debug[1].plot(U_BEST[n, :, 1].T, '.-', color=colors[n], label="_nolegend_")
+                    axes_control_debug[0].plot(U_prime[n, :, 0].T, '.-',color=colors[n],label="_nolegend_")
+                    axes_control_debug[1].plot(U_prime[n, :, 1].T, '.-', color=colors[n], label="_nolegend_")
 
                 axes_control_debug[0].set_title("Velocity [m/s]")
                 axes_control_debug[0].set_xlabel("Time Step")
@@ -412,27 +443,51 @@ if __name__ == "__main__":
                 fig_costs_debug.savefig(file_costs_debug)
                 [ax.cla() for ax in axes_costs_debug]
 
+            # U_BEST = jnp.sum(U_MPPI * weights.reshape(-1, 1, 1, 1),axis=0)
             mppi_end = time()
-
-        cost_means[k] = cost_MPPI.mean()
-        cost_stds[k] = cost_MPPI.std()
-        neffs[k] = 1 / (jnp.sum(scores_MPPI_weight ** 2))
+            # print("MPPI Mean Score: ",np.mean(scores_MPPI))
+            # print("MPPI Best Score: ",np.argmin(scores_MPPI))
+            # print("MPPI TIME: ",mppi_end-mppi_start)
 
         mppi_round_time_end = time()
 
-        U_Nom = jnp.roll(U_BEST,-1,axis=1)
+        if jnp.isnan(cost_MPPI).any():
+            print("BREAK!")
+            break
 
+        weights = weight_fn(cost_MPPI)
+
+        cost_means[k] = cost_MPPI.mean()
+        cost_stds[k] = cost_MPPI.std()
+        neffs[k] = 1 / (jnp.sum(weights ** 2))
+
+        mean_shift = (U_prime - U)
+
+        E_prime = E + mean_shift.ravel()
+
+        U += jnp.sum(weights.reshape(-1,1,1,1) * E_prime.reshape(num_traj,N,time_steps,2),axis=0)
+
+        U = jnp.stack((jnp.clip(U[:,:,0],control_constraints[0,0],control_constraints[1,0]),jnp.clip(U[:,:,1],control_constraints[0,1],control_constraints[1,1])),axis=-1)
+
+        # U +=
         print("MPPI Round Time: ",mppi_round_time_end-mppi_round_time_start)
         print("MPPI Iter Time: ",mppi_end-mppi_start)
         print("MPPI Score Time: ",mppi_score_end-mppi_score_start)
-        print("MPPI Mean Score: ",jnp.nanmean(-cost_MPPI))
+        print("MPPI Mean Score: ",jnp.nanmean(cost_MPPI))
         print("MPPI Best Score: ",-best_mppi_iter_score)
+        print(f"Vmin = {radar_states[:,:,2].min()} , Vmax = {radar_states[:,:,2].max()}")
         # FIMs.append(-jnp.nanmean(scores_MPPI))
 
 
-        # U_BEST =  jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1),axis=0)
-        # U_nominal =  jnp.sum(U_MPPI * scores_MPPI_weight.reshape(-1, 1, 1, 1),axis=0)
-        radar_states = kinematic_model_vmap( U_BEST ,jnp.expand_dims(radar_state, 1), time_step_size)
+
+        # U_BEST =  jnp.sum(U_MPPI * weights.reshape(-1, 1, 1, 1),axis=0)
+        # U_nominal =  jnp.sum(U_MPPI * weights.reshape(-1, 1, 1, 1),axis=0)
+        radar_states = kinematic_model_vmap( U ,jnp.expand_dims(radar_state, 1), time_step_size)
+
+
+        # U += jnp.clip(jnp.sum(weights.reshape(num_traj,1,1,1) *  E.reshape(num_traj,N,time_steps,2),axis=0),U_lower,U_upper)
+        U = jnp.roll(U,-1,axis=1)
+
 
         radar_state = radar_states[:,1]
 
@@ -440,6 +495,7 @@ if __name__ == "__main__":
 
          # print(jnp.trace(J))
         FIMs.append(jnp.linalg.slogdet(J)[1].ravel())
+        file = os.path.join(tmp_img_savepath,f"JU_test_target_movement{k}.png")
         if ((k+1) % frame_skip) == 0:
             fig_time = time()
             # for n in range(N):
@@ -462,16 +518,27 @@ if __name__ == "__main__":
                     Circle(radar_states[n,1, :2], R_sensors_to_sensors, edgecolor="red", fill=False, lw=1,
                            linestyle="--", label="_nolegend_"))
 
+            # if MPPI_VISUALIZE:
+            #     for n in range(N):
+            #         axes_main[0].plot(radar_states_MPPI[:, n, :, 0].T, radar_states_MPPI[:, n, :, 1].T, 'b-',label="_nolegend_")
             if MPPI_VISUALIZE:
-                for n in range(N):
-                    axes_main[0].plot(radar_states_MPPI[:, n, :, 0].T, radar_states_MPPI[:, n, :, 1].T, 'b-',label="_nolegend_")
+                # for n in range(N):
+                mppi_colors = (cost_MPPI - cost_MPPI.min()) / (cost_MPPI.ptp())
+                mppi_color_idx = np.argsort(mppi_colors)[::-1]
+                segs = radar_states_MPPI[mppi_color_idx].reshape(num_traj * N, time_steps + 1, -1, order='F')
+                segs = LineCollection(segs[:, :, :2], colors=plt.cm.jet(
+                    np.tile(mppi_colors[mppi_color_idx], (N, 1)).T.reshape(-1, order='F')), alpha=0.5)
+                # axes_mppi_debug.plot(radar_states_MPPI[:, n, :, 0].T, radar_states_MPPI[:, n, :, 1].T, 'b-',label="_nolegend_")
+                axes_main[0].add_collection(segs)
 
             axes_main[0].plot(radar_states[:,0,0], radar_states[:,0,1], 'r*',label="Sensor Position")
             axes_main[0].plot(radar_states.squeeze()[:,1:,0].T, radar_states.squeeze()[:,1:,1].T, 'r-',label="_nolegend_")
             axes_main[0].plot([],[],"r.-",label="Sensor Planned Path")
             axes_main[0].set_title(f"k={k}")
+            axes_main[0].set_title(f"k={k}")
             # axes[0].legend(bbox_to_anchor=(0.5, 1.45),loc="upper center")
             axes_main[0].legend(bbox_to_anchor=(0.7, 1.45),loc="upper center")
+            axes_main[0].grid()
             axes_main[0].axis('equal')
 
             qx,qy,logdet_grid = FIM_Visualization(ps=radar_state[:,:2], qs=m0,
@@ -483,6 +550,7 @@ if __name__ == "__main__":
             #
             axes_main[1].scatter(m0[:, 0], m0[:, 1], s=50, marker="o", color="g")
             axes_main[1].set_title("Instant Time Objective Function Map")
+            axes_main[1].grid()
             axes_main[1].axis('equal')
 
             axes_main[2].plot(jnp.array(FIMs),'ko')
@@ -501,8 +569,8 @@ if __name__ == "__main__":
             file_control= os.path.join(tmp_img_savepath, f"MPPI_control_{k}.png")
             images_control.append(file_control)
             for n in range(N):
-                axes_control[0].plot(U_BEST[n, :, 0].T, '.-', color=colors[n], label="_nolegend_")
-                axes_control[1].plot(U_BEST[n, :, 1].T, '.-', color=colors[n], label="_nolegend_")
+                axes_control[0].plot(U[n, :, 0].T, '.-', color=colors[n], label="_nolegend_")
+                axes_control[1].plot(U[n, :, 1].T, '.-', color=colors[n], label="_nolegend_")
 
             axes_control[0].set_title("Velocity [m/s]")
             axes_control[0].set_xlabel("Time Step")
@@ -520,10 +588,10 @@ if __name__ == "__main__":
             file_control= os.path.join(tmp_img_savepath, f"MPPI_cost_{k}.png")
             images_costs.append(file_control)
 
-            axes_costs[0].stem(cost_trajectory_best * alpha1)
-            axes_costs[1].stem(cost_collision_r2t_best * alpha2)
-            axes_costs[2].stem(cost_collision_r2r_best * alpha3)
-            axes_costs[3].stem(cost_speed_best * alpha5)
+            axes_costs[0].stem(cost_trajectory * alpha1)
+            axes_costs[1].stem(cost_collision_r2t * alpha2)
+            axes_costs[2].stem(cost_collision_r2r * alpha3)
+            axes_costs[3].stem(cost_speed * alpha5)
 
             axes_costs[0].set_title(f"State , $\\alpha_1$={alpha1}")
             axes_costs[1].set_title(f"Collision R2T , $\\alpha_2$={alpha2}")
@@ -543,30 +611,23 @@ if __name__ == "__main__":
 
         print("Fig Save Time: ",fig_time)
 
-
-    # if MPPI_ITER_VISUALIZE:
-    #     images = [imageio.imread(file) for file in images_mppi]
-    #     imageio.mimsave(os.path.join(gif_savepath,f'MPPI_step_{AIS_method}.gif'),images,duration=0.1)#
-
-
-
     images = [imageio.imread(file) for file in images_main]
-    imageio.mimsave(os.path.join(gif_savepath,f'MPPI_main_{AIS_method}.gif'),images,duration=0.1)#
+    imageio.mimsave(os.path.join(gif_savepath,f'MPPI_main_{AIS_method}_ais.gif'),images,duration=0.1)#
 
     images = [imageio.imread(file) for file in images_control]
-    imageio.mimsave(os.path.join(gif_savepath, f'MPPI_control_{AIS_method}.gif'), images, duration=0.1)
+    imageio.mimsave(os.path.join(gif_savepath, f'MPPI_control_{AIS_method}_ais.gif'), images, duration=0.1)
 
     images = [imageio.imread(file) for file in images_costs]
-    imageio.mimsave(os.path.join(gif_savepath, f'MPPI_cost_{AIS_method}.gif'), images, duration=0.1)  #
+    imageio.mimsave(os.path.join(gif_savepath, f'MPPI_cost_{AIS_method}_ais.gif'), images, duration=0.1)  #
 
     images = [imageio.imread(file) for file in images_mppi_debug]
-    imageio.mimsave(os.path.join(gif_savepath,f'MPPI_mppi_debug_{AIS_method}.gif'),images,duration=0.1)#
+    imageio.mimsave(os.path.join(gif_savepath,f'MPPI_mppi_debug_{AIS_method}_ais.gif'),images,duration=0.1)#
 
     images = [imageio.imread(file) for file in images_control_debug]
-    imageio.mimsave(os.path.join(gif_savepath, f'MPPI_control_debug_{AIS_method}.gif'), images, duration=0.1)
+    imageio.mimsave(os.path.join(gif_savepath, f'MPPI_control_debug_{AIS_method}_ais.gif'), images, duration=0.1)
 
     images = [imageio.imread(file) for file in images_costs_debug]
-    imageio.mimsave(os.path.join(gif_savepath, f'MPPI_cost_debug_{AIS_method}.gif'), images, duration=0.1)  #
+    imageio.mimsave(os.path.join(gif_savepath, f'MPPI_cost_debug_{AIS_method}_ais.gif'), images, duration=0.1)  #
     #
     for filename in images_main + images_control + images_costs + images_mppi_debug + images_control_debug + images_costs_debug:
         os.remove(filename)
@@ -578,7 +639,7 @@ if __name__ == "__main__":
     axes_misc[1].set_title("Std Trajectory Cost")
     fig_misc.suptitle(f"Temperture={temperature}")
     fig_misc.tight_layout()
-    fig_misc.savefig(os.path.join(img_savepath,"MPPI_cost_analysis.png"))
+    fig_misc.savefig(os.path.join(img_savepath,"MPPI_AIS_cost_analysis.png"))
 
 
     fig_neff,axes_neff = plt.subplots(1,2,figsize=(10,5))
@@ -589,5 +650,5 @@ if __name__ == "__main__":
     axes_neff[1].set_title("Neffs Iterations")
     axes_neff[1].set_xlabel("Iteration")
     fig_neff.tight_layout()
-    fig_neff.savefig(os.path.join(img_savepath,"MPPI_neff_analysis.png"))
+    fig_neff.savefig(os.path.join(img_savepath,"MPPI_AIS_neff_analysis.png"))
 

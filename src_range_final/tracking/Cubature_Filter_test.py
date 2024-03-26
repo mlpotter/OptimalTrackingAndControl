@@ -6,9 +6,11 @@ from jax import vmap
 import functools
 from jax import random
 
-from src_range.utils import NoiseParams,place_sensors
-from src_range.tracking.Particle_Filter import *
-
+from src_range_final.utils import place_sensors
+from src_range.tracking.Particle_Filter import generate_range_samples,optimal_importance_dist_sample,weight_update,effective_samples,weight_resample
+from src_range_final.tracking.Cubature_Filter import ckf_predict,ckf_filter,generate_sigma_points
+from src_range_final.tracking.Measurement_Models import RangeVelocityMeasure
+from src_range_final.tracking import Particle_Filter
 import numpy as np
 
 from tqdm import tqdm
@@ -18,67 +20,44 @@ import matplotlib.pyplot as plt
 import imageio
 
 
-def create_frame(t, Xnext, XT, ps, m0, ws, neffs, vs, heights,Filter, axes=None):
-    wmin, wmax = jnp.min(ws), jnp.max(ws)
-    ws_minmax = (ws - wmin) / (wmax - wmin + 1e-16)
-    pf_point = (Wnext * Xnext).sum(axis=0).ravel()
-    pf_point = pf_point.reshape(M, dm)
-    Xnext = Xnext.reshape(-1, M, dm)
-    XT = XT.reshape(-1, M, dm)
+def create_frame(t, XT, ps, target_state_filter, target_measurement_actual, heights, sigma_points,axes=None):
 
-    pfs = axes[0].scatter(Xnext[:, :, 0], Xnext[:, :, 1], c='green', alpha=ws_minmax, label="Particle States")
+    XT = XT.reshape(-1, M, dm)
+    sigma_points = sigma_points.T.reshape(-1,M,dm)
+
     target_traj = axes[0].plot(XT[:, :, 0], XT[:, :, 1], marker='d', color="r", alpha=0.3, label='_nolegend_')
     empty_target_traj = axes[0].plot([], [], marker='d', color="r", linestyle='', label="Target")
     sensor_pos = axes[0].plot(ps[:, 0], ps[:, 1], marker="o", color="b", linestyle='', label='Sensor')
-    pf_init = axes[0].plot(m0[:, 0], m0[:, 1], marker="x", color="g", linestyle='', label="Init Guess")
-    pf_mean = axes[0].plot(pf_point[:, 0], pf_point[:, 1], color="k", marker='x', linestyle='', label="PF Avg")
+
+    sigma_pts = axes[0].plot(sigma_points[:,:, 0], sigma_points[:,:, 1], color="g", marker='x', linestyle='', label="Sigma Points")
+    pf_mean = axes[0].plot(target_state_filter[:, 0], target_state_filter[:, 1], color="k", marker='x', linestyle='', label="CF Avg")
+
     axes[0].set_ylabel("$y$");
     axes[0].set_xlabel("$x$");
     axes[0].legend()
     axes[0].set_title(f"t={t + 1}")
 
-    ws_top50 = jnp.sort(ws.ravel())[::-1]  # [-100:][::-1]
-    stems = axes[1].stem(ws_top50)
-    axes[1].set_ylabel("Particle Weight")
-    axes[1].set_title(f"{len(ws_top50)} PF Weights")
+    ranges = axes[1].plot(target_measurement_actual, 'o-')
+    axes[1].set_ylabel("Range Measure")
+    axes[1].set_xlabel("t")
 
-    neffs = axes[2].plot(neffs, 'ko-')
-    axes[2].set_ylabel("Neff")
+    height = axes[2].plot(heights, marker='o', color="y", label='_nolegend_', linestyle="-")
+    axes[2].set_ylabel("Height Estimates")
     axes[2].set_xlabel("t")
-
-    ranges = axes[3].plot(vs, 'o-')
-    axes[3].set_ylabel("Range Measure")
-    axes[3].set_xlabel("t")
-
-    height = axes[4].plot(heights, marker='o', color="y", label='_nolegend_', linestyle="-")
-    axes[4].set_ylabel("Height Estimates")
-    axes[4].set_xlabel("t")
     # axes[3].legend([f"radar={n}" for n in range(N)])
-
-
-    colors = plt.cm.jet(np.linspace(0, 1,M))
-    for m in range(M):
-        axes[5].plot(Filter[:(t + 1)].reshape(t + 1, M, dm)[:, m, dm // 2:], color=colors[m], marker='o')
-        axes[5].set_xlabel("t")
 
     filename = f"frame_{t}.png"
     plt.savefig(os.path.join(photo_dump, filename))
 
     axes[0].legend_ = None
     # axes[3].legend_=None
-    pfs.remove()
     [line.remove() for line in target_traj]
     [line.remove() for line in sensor_pos]
-    [line.remove() for line in pf_init]
-    [line.remove() for line in pf_mean]
     [line.remove() for line in empty_target_traj]
 
     axes[0].cla()
     axes[1].cla()
     axes[2].cla()
-    axes[3].cla()
-    axes[4].cla()
-    axes[5].cla()
 
     return os.path.join(photo_dump, filename)
 
@@ -90,7 +69,7 @@ if __name__ == "__main__":
     np.random.seed(123)
 
     c = 299792458
-    fc = 1e8;
+    fc = 1e6;
     Gt = 2000;
     Gr = 2000;
     lam = c / fc
@@ -100,9 +79,9 @@ if __name__ == "__main__":
     # B = 0.05 * 10**5
 
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 100
+    R = 1000
 
-    Pt = 1000
+    Pt = 10000
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
     Pr = K / (R ** 4)
     # get the power of the noise of the signal
@@ -111,18 +90,17 @@ if __name__ == "__main__":
 
     # Generic experiment
     T = 0.1
-    NP = 1000
-    TN = 1000
+    TN = 500
     N = 4
     photo_dump = os.path.join("tmp_images")
-    gif_filename = f"pf_track_{SNR}.gif"
+    gif_filename = f"cf_track_{SNR}.gif"
     gif_savepath = os.path.join("..", "..", "images")
-    remove_photo_dump = True
+    remove_photo_dump = False
     every_other_frame = 25
     os.makedirs(photo_dump, exist_ok=True)
 
 
-    ps = place_sensors([-1000, 1000], [-1000, 1000], N)
+    ps = place_sensors([-500, 500], [-500, 500], N)
 
     # z_elevation = 150
     # qs = jnp.array([[0.0, -0.0, 50., 20.2],
@@ -137,8 +115,7 @@ if __name__ == "__main__":
     M, dm = qs.shape;
     N , dn = ps.shape
 
-    # acceleration variance
-    sigmaQ = np.sqrt(10 ** (0));
+    sigmaQ = np.sqrt(10 ** (3));
     sigmaV = np.sqrt(5)
     sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
     C = c**2 * sigmaW**2 / (fc**2 * 8 * jnp.pi**2) * 1/K
@@ -188,82 +165,67 @@ if __name__ == "__main__":
                                    Gt=Gt,Gr=Gr,Pt=Pt,lam=lam,rcs=rcs,L=L,c=c,fc=fc,sigmaW=sigmaW,sigmaV=sigmaV,
                                    TN=TN)
 
-
-
-    P0_singular = jnp.diag(jnp.array([2, 2, 2, 5, 5, 5]));
-    P0 = jnp.kron(jnp.eye(M), P0_singular)
-    PF_initial_position_error = 1
-    PF_initial_velocity_error = 3
-    PF_measurement_freq = 1   # P0_singular = jnp.diag(jnp.array([50, 50, 50, 50]));
-
     key, subkey = random.split(key)
-    m0= qs.at[:, :dm//2].add(np.random.randn(M,dm//2)*PF_initial_position_error)
-    m0 = m0.at[:, dm//2:].add(np.random.randn(M,dm//2)*PF_initial_velocity_error)
+    target_state_filter = qs.at[:, dm//2:].add(3);
+    target_state_filter = target_state_filter.at[:, :dm//2].add(5);
 
-    P0 = jnp.kron(jnp.eye(M), P0_singular)
+    P_filter = jnp.diag(jnp.array([25, 25, 25, 25, 25, 25]));
+    # P0_singular = jnp.diag(jnp.array([50, 50, 50, 50]));
 
-    Xprev = jax.random.multivariate_normal(subkey, m0.ravel(), P0, shape=(NP,), method="cholesky")
-    Wprev = jnp.ones((NP, 1)) * 1 / NP
+    P_filter  = jnp.kron(jnp.eye(M), P_filter)
 
-    key, Xnext = optimal_importance_dist_sample(key, Xprev, A, Q)
 
     Filter = np.zeros((TN, nx))
 
-    Ws = [];
-    Filters = [];
     Measures = [];
     RMSE = [];
-    Neffs = []
 
     frame_names = []
-    fig, axes = plt.subplots(nrows=1, ncols=6, figsize=(30, 6));
+    fig, axes = plt.subplots(nrows=1, ncols=3, figsize=(15, 5));
     Vs = jnp.zeros((TN, N * M * (dm//2 + 1)))
     heights = jnp.zeros((TN, M))
-    Vnext_parallel = vmap(RangeVelocityMeasure, in_axes=(0, None))
-    weight_update_partial = partial(weight_update,Pt=Pt,Gt=Gt,Gr=Gr,lam=lam,rcs=rcs,L=L,c=c,fc=fc,sigmaW=sigmaW,sigmaV=sigmaV,M=M,N=N,dm=dm,dn=dn)
+
+    # weight_update_partial = partial(weight_update,Pt=Pt,Gt=Gt,Gr=Gr,lam=lam,rcs=rcs,L=L,c=c,fc=fc,sigmaW=sigmaW,sigmaV=sigmaV,M=M,N=N,dm=dm,dn=dn)
     for t in tqdm(range(0, TN)):
+        # predict the next state
+        target_state_predict,P_predict = ckf_predict(target_state_filter, P_filter, A, Q)
+
+        # predict sigma points
+        sigma_points = generate_sigma_points(target_state_predict, P_predict, M*dm)
+
         # get the measurement  y_k+1
-        ynext = YT[t].reshape(-1, 1)
+        target_measurement_actual = YT[t].reshape(-1,1)
 
-        # sample with state transition matrix x_k+1
-        key, Xnext = optimal_importance_dist_sample(key, Xprev, A, Q)
-        heights = heights.at[t].set(Xnext.reshape(-1, M, dm).mean(axis=0)[:, 2])
+        # get the expected measurement y_k+1
+        target_measurement_expected = RangeVelocityMeasure(target_state_predict[:,:dm//2],ps)
 
-        # Generate the expected Measurements for x_k+1 (v_k+1)
-        # print(Xnext.reshape(-1, M, nx // M))
-        Vnext = Vnext_parallel(Xnext.reshape(-1, M, nx // M), ps)
-        Vs = Vs.at[t].set(Vnext.mean(0).ravel())
+        # get the covariance matrix based on the next measurement
+        range_measures = target_measurement_expected[:, 0].ravel()
 
-        # Update particle weights recursively...
-        Wnext = weight_update_partial(Wprev, Vnext,ynext)
-        neffs = effective_samples(Wnext)
-        Measures.append(Vnext)
-        Neffs.append(neffs)
+        range_var = C * (range_measures ** 4)
+
+        variances = jnp.column_stack((range_var,jnp.ones((range_measures.shape[0],dm//2))*sigmaV**2))
+
+        cov_measurement = jnp.diag(variances.ravel())
+
+
+        target_state_filter,P_filter = ckf_filter(target_measurement_actual.reshape(-1,1),ps,target_state_predict,P_predict,cov_measurement)
+        # if t % 25 == 0 :
+        #     print("Target State: ",target_state_filter)
+        #     print("True State: ",XT[t].reshape(M,dm))
+
+        heights = heights.at[t].set(target_state_filter.reshape(M, dm)[:, 2])
 
         # if np.isnan(Wnext).any():
         #     Wnext = jnp.ones((NP, 1)) * 1 / NP
-        if jnp.isnan(Wnext).any().item():
-            print("Particle Filter Failed!")
-            break
-
-        if neffs < (NP * 2 / 3) or (t + 1) % 250 == 0:
-            print("\n Particle Resampling")
-            Xnext, Wnext = weight_resample(Xnext, Wnext)
-
-        Filter[t] = (Wnext * Xnext).sum(axis=0)
 
         if t % every_other_frame == 0:
-            frame = create_frame(t, Xnext, XT[:t + 1], ps, m0, Wnext, Neffs, YT[:t + 1,:,0], heights[:t + 1], Filter, axes=axes)
+            frame = create_frame(t, XT[t], ps, target_state_predict, YT[:t + 1,:,0],  heights[:t + 1], sigma_points,axes=axes)
             frame_names.append(frame)
 
-        Ws.append(Wnext);
-        Filters.append(Xnext)
-        RMSE.append(jnp.sqrt((Filter[t] - XT[t]) ** 2))
 
-        Xprev = Xnext;
-        Wprev = Wnext
-
-        print(f"\n Effective Particle Count: {neffs} , Particle Weight Variance: {np.var(Wprev.ravel())}")
+        # Filters.append(target_state_filter)
+        RMSE.append(jnp.sqrt((target_state_filter.ravel()- XT[t]) ** 2))
 
     # Save frames as a GIF
     frames = []
@@ -271,7 +233,7 @@ if __name__ == "__main__":
         frames.append(imageio.imread(frame_name))
 
     imageio.mimsave(os.path.join(gif_savepath, "gifs", gif_filename), frames,
-                    duration=0.25)  # Adjust duration as needed
+                    duration=1000)  # Adjust duration as needed
     print(f"GIF saved as '{gif_filename}'")
 
     if remove_photo_dump:
@@ -285,7 +247,7 @@ if __name__ == "__main__":
     plt.title("States")
     plt.ylabel("RMSE")
     plt.xlabel("time step")
-    plt.savefig(os.path.join(gif_savepath, f"pf_rmse_{SNR}.png"))
+    plt.savefig(os.path.join(gif_savepath, f"cf_rmse_{SNR}.png"))
     plt.close()
 
     # # Dummy plots for creating the legend

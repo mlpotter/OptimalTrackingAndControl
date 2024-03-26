@@ -6,8 +6,10 @@ from jax import vmap
 import functools
 from jax import random
 
-from src_range.utils import NoiseParams,place_sensors
-from src_range.tracking.Particle_Filter import *
+
+from src_range.utils import place_sensors
+from src_range.tracking.Particle_Filter import generate_range_samples,optimal_importance_dist_sample,weight_update,effective_samples,weight_resample
+from src_range_final.tracking.Measurement_Models import RangeVelocityMeasure
 
 import numpy as np
 
@@ -18,7 +20,7 @@ import matplotlib.pyplot as plt
 import imageio
 
 
-def create_frame(t, Xnext, XT, ps, m0, ws, neffs, vs, heights,Filter, axes=None):
+def create_frame(t, Xnext, XT, ps, m0, ws, neffs, vs, heights, axes=None):
     wmin, wmax = jnp.min(ws), jnp.max(ws)
     ws_minmax = (ws - wmin) / (wmax - wmin + 1e-16)
     pf_point = (Wnext * Xnext).sum(axis=0).ravel()
@@ -55,12 +57,6 @@ def create_frame(t, Xnext, XT, ps, m0, ws, neffs, vs, heights,Filter, axes=None)
     axes[4].set_xlabel("t")
     # axes[3].legend([f"radar={n}" for n in range(N)])
 
-
-    colors = plt.cm.jet(np.linspace(0, 1,M))
-    for m in range(M):
-        axes[5].plot(Filter[:(t + 1)].reshape(t + 1, M, dm)[:, m, dm // 2:], color=colors[m], marker='o')
-        axes[5].set_xlabel("t")
-
     filename = f"frame_{t}.png"
     plt.savefig(os.path.join(photo_dump, filename))
 
@@ -78,7 +74,6 @@ def create_frame(t, Xnext, XT, ps, m0, ws, neffs, vs, heights,Filter, axes=None)
     axes[2].cla()
     axes[3].cla()
     axes[4].cla()
-    axes[5].cla()
 
     return os.path.join(photo_dump, filename)
 
@@ -90,7 +85,7 @@ if __name__ == "__main__":
     np.random.seed(123)
 
     c = 299792458
-    fc = 1e8;
+    fc = 1e6;
     Gt = 2000;
     Gr = 2000;
     lam = c / fc
@@ -100,18 +95,18 @@ if __name__ == "__main__":
     # B = 0.05 * 10**5
 
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 100
+    R = 1000
 
-    Pt = 1000
+    Pt = 10000
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
     Pr = K / (R ** 4)
     # get the power of the noise of the signal
-    SNR=-0
+    SNR=-20
 
 
     # Generic experiment
-    T = 0.1
-    NP = 1000
+    T = 0.01
+    NP = 5000
     TN = 1000
     N = 4
     photo_dump = os.path.join("tmp_images")
@@ -137,8 +132,7 @@ if __name__ == "__main__":
     M, dm = qs.shape;
     N , dn = ps.shape
 
-    # acceleration variance
-    sigmaQ = np.sqrt(10 ** (0));
+    sigmaQ = np.sqrt(10 ** (3));
     sigmaV = np.sqrt(5)
     sigmaW = jnp.sqrt(M*Pr/ (10**(SNR/10)))
     C = c**2 * sigmaW**2 / (fc**2 * 8 * jnp.pi**2) * 1/K
@@ -188,17 +182,12 @@ if __name__ == "__main__":
                                    Gt=Gt,Gr=Gr,Pt=Pt,lam=lam,rcs=rcs,L=L,c=c,fc=fc,sigmaW=sigmaW,sigmaV=sigmaV,
                                    TN=TN)
 
-
-
-    P0_singular = jnp.diag(jnp.array([2, 2, 2, 5, 5, 5]));
-    P0 = jnp.kron(jnp.eye(M), P0_singular)
-    PF_initial_position_error = 1
-    PF_initial_velocity_error = 3
-    PF_measurement_freq = 1   # P0_singular = jnp.diag(jnp.array([50, 50, 50, 50]));
-
     key, subkey = random.split(key)
-    m0= qs.at[:, :dm//2].add(np.random.randn(M,dm//2)*PF_initial_position_error)
-    m0 = m0.at[:, dm//2:].add(np.random.randn(M,dm//2)*PF_initial_velocity_error)
+    m0 = qs.at[:, dm//2:].add(5);
+    m0 = m0.at[:, :dm//2].add(5)
+
+    P0_singular = jnp.diag(jnp.array([50, 50, 50, 50, 50, 50]));
+    # P0_singular = jnp.diag(jnp.array([50, 50, 50, 50]));
 
     P0 = jnp.kron(jnp.eye(M), P0_singular)
 
@@ -216,7 +205,7 @@ if __name__ == "__main__":
     Neffs = []
 
     frame_names = []
-    fig, axes = plt.subplots(nrows=1, ncols=6, figsize=(30, 6));
+    fig, axes = plt.subplots(nrows=1, ncols=5, figsize=(25, 5));
     Vs = jnp.zeros((TN, N * M * (dm//2 + 1)))
     heights = jnp.zeros((TN, M))
     Vnext_parallel = vmap(RangeVelocityMeasure, in_axes=(0, None))
@@ -230,7 +219,6 @@ if __name__ == "__main__":
         heights = heights.at[t].set(Xnext.reshape(-1, M, dm).mean(axis=0)[:, 2])
 
         # Generate the expected Measurements for x_k+1 (v_k+1)
-        # print(Xnext.reshape(-1, M, nx // M))
         Vnext = Vnext_parallel(Xnext.reshape(-1, M, nx // M), ps)
         Vs = Vs.at[t].set(Vnext.mean(0).ravel())
 
@@ -246,15 +234,15 @@ if __name__ == "__main__":
             print("Particle Filter Failed!")
             break
 
+        if t % every_other_frame == 0:
+            frame = create_frame(t, Xnext, XT[:t + 1], ps, m0, Wnext, Neffs, YT[:t + 1,:,0], heights[:t + 1], axes=axes)
+            frame_names.append(frame)
+
         if neffs < (NP * 2 / 3) or (t + 1) % 250 == 0:
             print("\n Particle Resampling")
             Xnext, Wnext = weight_resample(Xnext, Wnext)
 
         Filter[t] = (Wnext * Xnext).sum(axis=0)
-
-        if t % every_other_frame == 0:
-            frame = create_frame(t, Xnext, XT[:t + 1], ps, m0, Wnext, Neffs, YT[:t + 1,:,0], heights[:t + 1], Filter, axes=axes)
-            frame_names.append(frame)
 
         Ws.append(Wnext);
         Filters.append(Xnext)

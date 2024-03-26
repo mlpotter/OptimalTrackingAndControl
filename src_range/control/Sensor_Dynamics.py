@@ -7,82 +7,85 @@ import numpy as np
 import jax.numpy as jnp
 from jax import jit
 
+v_low,v_high = -50,50
+av_low,av_high = -2*jnp.pi,2*jnp.pi
 
-# def rotational_matrix(chi):
-#     return jnp.array([[jnp.cos(chi), -jnp.sin(chi)],
-#                       [jnp.sin(chi), jnp.cos(chi) ]])
-# def rotational_column_perp(chi):
-#     return jnp.vstack((-jnp.sin(chi),jnp.cos(chi)))
-#
-# def rotational_column(chi):
-#     return jnp.vstack((jnp.cos(chi),jnp.sin(chi)))
-#
-# # @jit
-# def angle_update(chi,av,time_step_size):
-#     return chi + time_step_size*av
-#
-# def position_update(p,v,av,chi,chi_,time_step_size):
-#
-#     p = p.T
-#
-#     return jnp.where(av==0,
-#                      p + v *rotational_column(chi)*time_step_size,
-#                      p + (v / jnp.where(av == 0., 1e-10, av)) * (rotational_column_perp(chi) - rotational_column_perp(chi_))
-#                      ).T
-#
-# @jit
-# def state_multiple_update(p,U,chi,time_step_sizes):
-#     vs,avs = U[0,:],U[1,:]
-#     chis = [jnp.expand_dims(chi,0)] + [None]*len(vs)
-#     ps = [jnp.expand_dims(p,0)] + [None]*len(vs)
-#
-#
-#
-#     for k in range(len(vs)):
-#         # update angle
-#         chi_next = angle_update(chi,avs[k],time_step_sizes[k])
-#         chis[k+1] = jnp.expand_dims(chi_next, 0)
-#
-#         # update position on angle
-#         p_next = position_update(p,vs[k],avs[k],chi,chi_next,time_step_sizes[k])
-#         ps[k+1] = jnp.expand_dims(p_next,0)
-#
-#         # reinit for next state
-#         chi = chi_next
-#         p = p_next
-#
-#     return p,chi,jnp.vstack(ps),jnp.vstack(chis)
+va_low,va_high = -35,35
+ava_low,ava_high = -1*jnp.pi,1*jnp.pi
 
-# @jit
-def unicycle_kinematics(p,U,chi,time_step_sizes):
+UNI_SI_U_LIM = jnp.array([[v_low,av_low],[v_high,av_high]])
+UNI_DI_U_LIM = jnp.array([[va_low,ava_low],[va_high,ava_high]])
+
+@jit
+def unicycle_kinematics_single_integrator(U,unicycle_state,time_step_size):
     # sensor dynamics for unicycle model
+    p,chi = unicycle_state[:,:2],unicycle_state[:,2]
 
-    vs,avs = U[:,[0]],U[:,[1]]
+    vs,avs = jnp.clip(U[:,[0]],v_low,v_high),jnp.clip(U[:,[1]],av_low,av_high)
 
     chi = chi.reshape(1,1)
     p = p.reshape(1,-1)
 
-    chi_next = chi + jnp.cumsum(time_step_sizes * avs,axis=0)
+    chi_next = chi + jnp.cumsum(time_step_size * avs,axis=0)
     chis = jnp.vstack((chi,chi_next))
 
     ps_next = p + jnp.cumsum(jnp.column_stack((jnp.cos(chis[:-1].ravel()),
-                                               jnp.sin(chis[:-1].ravel()))) * vs * time_step_sizes,axis=0)
+                                               jnp.sin(chis[:-1].ravel()))) * vs * time_step_size,axis=0)
     ps = jnp.vstack((p,ps_next))
 
-    # chis = [jnp.expand_dims(chi,0)] + [None]*len(vs)
-    # ps = [jnp.expand_dims(p,0)] + [None]*len(vs)
-    #
-    # for k in range(len(vs)):
-    #     chi_next = chi + time_step_sizes * avs[k]
-    #     p_next = p + time_step_sizes * jnp.array([[jnp.cos(chi.squeeze()),jnp.sin(chi.squeeze())]]) * vs[k]
-    #
-    #     ps[k+1] = jnp.expand_dims(p_next,0)
-    #     chis[k+1] = jnp.expand_dims(chi_next,0)
-    #
-    #     chi = chi_next
-    #     p = p_next
-    # chis = jnp.hstack((chi,chi+jnp.cumsum(time_)))
-    # p = p.reshape(-1,2)
-    # chi = chi.reshape(1,1)
+    return jnp.column_stack((ps,chis))
 
-    return ps[-1,:],chis[-1,:],ps,chis
+
+def accelerate(vel_param, change):
+    v = vel_param[0]
+    v_low = vel_param[1]
+    v_high = vel_param[2]
+
+    v_new = jnp.clip(v + change, v_low, v_high)
+
+    return jnp.array([v_new[0], v_low, v_high]), v_new
+
+@jit
+def unicycle_kinematics_double_integrator(U, unicycle_state, dt):
+    horizon = U.shape[-2]
+
+    # sensor dynamics for unicycle model
+    p, chi,v,av = unicycle_state[..., :3], unicycle_state[..., [3]], unicycle_state[...,[4]],unicycle_state[...,[5]]
+
+
+    a = jnp.clip(U[...,[0]],va_low,va_high)
+    aa = jnp.clip(U[...,[1]],ava_low,ava_high)
+
+    a = jnp.moveaxis(a,source=-2,destination=0)
+    aa = jnp.moveaxis(aa,source=-2,destination=0)
+
+    # _,vs = accelerate((v,v_low,v_high),jnp.cumsum(a*dt,axis=-2)[...,-1])
+    _,vs = jax.lax.scan(accelerate, (v, v_low, v_high), (a * dt))
+
+    vs = jnp.swapaxes(vs,0,-2)[...,-1]
+
+    # _,avs = accelerate((av,av_low,av_high),jnp.cumsum(aa*dt,axis=-2)[...,-1])
+    _,avs = jax.lax.scan(accelerate, (av,av_low,av_high), (aa * dt))
+
+    avs = jnp.swapaxes(avs,0,-2)[...,-1]
+
+    chi_next = chi + jnp.cumsum(dt * avs, axis=-1)
+
+    chis = jnp.concatenate((chi, chi_next),-1)
+
+    chis_temp = chis[..., :-1]
+
+    p_change = jnp.cumsum(jnp.stack((jnp.cos(chis_temp)  * vs * dt,
+               jnp.sin(chis_temp) * vs * dt,
+               jnp.zeros(chis_temp.shape)), axis=-1),axis=-2)
+
+    ps_next = jnp.expand_dims(p,axis=-2) + p_change
+
+    ps = jnp.concatenate((jnp.expand_dims(p,axis=-2), ps_next),axis=-2)
+
+    vs =  jnp.expand_dims(jnp.concatenate((v,vs),axis=-1),-1)
+    avs = jnp.expand_dims(jnp.concatenate((av,avs),axis=-1),-1)
+
+    chis = jnp.expand_dims(chis,axis=-1)
+
+    return jnp.concatenate((ps, chis,vs,avs),axis=-1)
