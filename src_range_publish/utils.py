@@ -58,7 +58,8 @@ def visualize_control(U,CONTROL_LIM,fig,axes,step,tmp_photo_dir,filename="visual
 
     return file_savepth
 
-def visualize_tracking(target_state_true,target_state_ckf,cost_MPPI,
+def visualize_tracking(target_state_true,target_state_ckf,target_states_true,
+                       cost_MPPI,
                        radar_state,radar_states_MPPI,
                        FIMs,
                        R2T,R2R,C,
@@ -72,10 +73,11 @@ def visualize_tracking(target_state_true,target_state_ckf,cost_MPPI,
     M_target,dm = target_state_true.shape
     N_target,dn = radar_state.shape
 
-
+    target_traj_segs =     LineCollection( np.swapaxes(target_states_true[:,:,:2],1,0), colors="g", alpha=0.5)
 
     # axes[0].plot(radar_state_history[0, :, 0], radar_state_history[0, :, 1], 'md', label="Sensor Init")
     axes[0].plot(target_state_true[:, 0].ravel(), target_state_true[:, 1].ravel(), 'go', label="Target Position")
+    axes[0].add_collection(target_traj_segs)
     axes[0].plot(radar_state[:, 0].ravel(), radar_state[:, 1].ravel(), 'r*', label="Radar")
     axes[0].plot(target_state_ckf[:, 0].ravel(), target_state_ckf[:, 1].ravel(), 'bX', label="CKF Predict")
 

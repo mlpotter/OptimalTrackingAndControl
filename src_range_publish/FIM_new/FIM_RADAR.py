@@ -20,9 +20,9 @@ def Single_FIM_Radar(radar_state,target_state,C,J=None):
     N,dn= radar_state.shape
     M,dm = target_state.shape
 
-    radar_positions = radar_state[:,:dm//2]
+    radar_positions = radar_state[:,:3]
 
-    target_positions = target_state[:,:dm//2]
+    target_positions = target_state[:,:3]
 
     d = (target_positions[jnp.newaxis,:,:] - radar_positions[:,jnp.newaxis,:])
 
@@ -38,23 +38,23 @@ def Single_FIM_Radar(radar_state,target_state,C,J=None):
     return J
 
 @jit
-def Single_JU_FIM_Radar(radar_state,target_state,J,A,Qinv,C):
+def Single_JU_FIM_Radar(radar_state,target_state,J,A,Q,C):
 
     N,dn= radar_state.shape
     M,dm = target_state.shape
 
     radar_positions = radar_state[:,:3]
 
-    target_positions = target_state[:,:dm//2]
+    target_positions = target_state[:,:3]
 
     # Qinv = jnp.linalg.inv(Q+jnp.eye(dm*M)*1e-8)
     # # Qinv = jnp.linalg.inv(Q)
     #
-    D11 = A.T @ Qinv @ A
-    D12 = -A.T @ Qinv
-    D21 = D12.T
+    # D11 = A.T @ Qinv @ A
+    # D12 = -A.T @ Qinv
+    # D21 = D12.T
 
-    d = (target_positions[jnp.newaxis,:,:] - radar_positions[:,jnp.newaxis,:])
+    d = (target_positions[:,jnp.newaxis,:] - radar_positions[jnp.newaxis,:,:])
 
     distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
 
@@ -62,15 +62,43 @@ def Single_JU_FIM_Radar(radar_state,target_state,J,A,Qinv,C):
     # jnp.einsum("ijk,ilm->ikm", d, d)
     coef = jnp.sqrt((4/(C*distances**6) + 8/(distances**4)))
     outer_vector = d * coef
-    outer_product = (outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
-    J_standard = jax.scipy.linalg.block_diag(*[jax.scipy.linalg.block_diag(outer_product[m],jnp.eye(dm//2)* 0) for m in range(M)])
+    outer_product = jnp.einsum("ijk,ijl->ijkl",outer_vector,outer_vector).sum(axis=0)#(outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
+    J_standard = jax.scipy.linalg.block_diag(*[jax.scipy.linalg.block_diag(outer_product[m],jnp.zeros((dm-3,dm-3))) for m in range(M)])
 
-    D22 = J_standard + Qinv
+    # D22 = J_standard + Qinv
 
     # J = D22 - D21 @ jnp.linalg.inv(J + D11) @ D12
-    J = D22 - D21 @ jnp.linalg.solve(J+D11,jnp.eye(J.shape[0])) @ D12
+    # J = D22 - D21 @ jnp.linalg.solve(J+D11,jnp.eye(J.shape[0])) @ D12
+
     # J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
 
+    J = jnp.linalg.inv(Q+A@jnp.linalg.inv(J)@A.T) + J_standard
+
+    return J
+
+
+@jit
+def JU_RANGE_FIM(radar_state,target_state,J,A,Q,R):
+
+    N,dn= radar_state.shape
+    M,dm = target_state.shape
+
+    radar_positions = radar_state[:,:3]
+
+    target_positions = target_state[:,:3]
+
+    d = (target_positions[jnp.newaxis,:,:] - radar_positions[:,jnp.newaxis,:])
+
+    distances = jnp.sqrt(jnp.sum(d**2,-1,keepdims=True))
+
+    outer_vector = 2*d/distances
+
+    # outer_product = jnp.einsum("ijk,ijl->ijkl",outer_vector,outer_vector).sum(axis=0) * 1/ (sigmaR**2)#(outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
+
+    J_standard = outer_vector.squeeze().T @ jnp.linalg.inv(R) @ outer_vector.squeeze()
+    # J_standard = jax.scipy.linalg.block_diag(*[jax.scipy.linalg.block_diag(outer_product[m],jnp.zeros((dm-3,dm-3))) for m in range(M)])
+    J_standard = jax.scipy.linalg.block_diag(J_standard,jnp.zeros((dm-3,dm-3)))
+    J = jnp.linalg.inv(Q + A@jnp.linalg.inv(J)@A.T) + J_standard
     return J
 
 @partial(jit,static_argnames=['N',"space"])

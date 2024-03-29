@@ -8,7 +8,7 @@ from jaxopt import ScipyMinimize
 
 
 
-from src_range_publish.FIM_new.FIM_RADAR import Single_FIM_Radar,FIM_Visualization
+from src_range_publish.FIM_new.FIM_RADAR import Single_JU_FIM_Radar,Single_FIM_Radar,FIM_Visualization
 from src_range_publish.control.Sensor_Dynamics import UNI_SI_U_LIM,UNI_DI_U_LIM,unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator
 from src_range_publish.utils import visualize_tracking,visualize_control,visualize_target_mse
 import matplotlib
@@ -49,7 +49,7 @@ if __name__ == "__main__":
     key = jax.random.PRNGKey(seed)
     np.random.seed(123)
 
-    gif_savepath = os.path.join("..", "images", "gifs","main")
+    gif_savepath = os.path.join("..", "images", "gifs","test_large_boundary_apple")
     tmp_img_savepath = os.path.join("tmp_images")
     img_savepath = os.path.join("..","..","images")
     os.makedirs(tmp_img_savepath,exist_ok=True)
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     MPPI_VISUALIZE = True
     MPPI_ITER_VISUALIZE = True
 
-    N_radar = 8
+    N_radar = 3
     colors = plt.cm.jet(np.linspace(0, 1,N_radar))
 
     update_freq_control = 4
@@ -137,19 +137,19 @@ if __name__ == "__main__":
     radar_state_init = deepcopy(radar_state)
 
     ps_init = deepcopy(ps)
-    z_elevation = 100
-    # qs = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
+    z_elevation = 60
+    # target_state = jnp.array([[0.0, -0.0,z_elevation, 25., 20,0], #,#,
     #                 [-50.4,30.32,z_elevation,-20,-10,0], #,
     #                 # [10,10,z_elevation,10,10,0],
     #                 [20,20,z_elevation,5,-5,0]])
-    # qs = jnp.array([[0.0, -0.0,z_elevation, 0., 0,0], #,#,
-    #                 [-50.4,30.32,z_elevation,-0,-0,0], #,
-    #                 [10,10,z_elevation,0,0,0],
-    #                 [20,20,z_elevation,0,0,0]])
-    target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
-                    [-100.4,-30.32,z_elevation-15,20,-10,0], #,
-                    [30,30,z_elevation+20,-10,-10,0]])#,
-
+    target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
+                    [15.4,15.32,z_elevation+10,15,20,0], #,
+                    [10,10,z_elevation-5,17,19,0],
+                    [20,20,z_elevation-15,6,8,0]])
+    # target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
+    #                 [-100.4,-30.32,z_elevation-15,20,-10,0], #,
+    #                 [30,30,z_elevation+20,-10,-10,0]])#,
+    print(target_state[:,2])
     M_target, dm = target_state.shape;
     _ , dn = radar_state.shape;
 
@@ -173,13 +173,11 @@ if __name__ == "__main__":
     R_sensors_to_sensors = 10
 
     alpha1 = 1 # FIM
-    alpha2 = 80 # Target - Radar Distance
+    alpha2 = 1000 # Target - Radar Distance
     alpha3 = 60 # Radar - Radar Distance
     alpha4 = 1 # AIS control cost
     alpha5 = 0 # speed cost
 
-    thetas = jnp.arcsin(target_state[:,2]/R_sensors_to_targets)
-    radius_projected = R_sensors_to_targets * jnp.cos(thetas)
 
     # ========================= Target State Space ============================== #
 
@@ -230,11 +228,17 @@ if __name__ == "__main__":
 
     # ======================== Objective Settings ===============================#
 
-    J = jnp.eye(dm*M_target) #jnp.stack([jnp.eye(d) for m in range(M)])
+    J = jnp.linalg.inv(ckf.P)#jnp.eye(dm*M_target) #jnp.stack([jnp.eye(d) for m in range(M)])
 
-    Qinv = jnp.linalg.solve(Q,jnp.eye(Q.shape[0])) #+jnp.eye(dm*M)*1e-8)
+    # Qinv = jnp.linalg.solve(Q,jnp.eye(Q.shape[0])) #+jnp.eye(dm*M)*1e-8)
 
-    IM_fn = partial(Single_FIM_Radar,C=C)
+    if fim_method == "PCRLB":
+        IM_fn = partial(Single_JU_FIM_Radar, A=A, Q=Q, C=C)
+
+    elif fim_method == "Standard FIM":
+        IM_fn = partial(Single_FIM_Radar, C=C)
+
+    # IM_fn = partial(Single_FIM_Radar,C=C)
 
 
     MPC_obj = MPC_decorator(IM_fn=IM_fn,kinematic_model=kinematic_model,dt=dt_control,gamma=gamma,method=mpc_method)
@@ -273,7 +277,7 @@ if __name__ == "__main__":
     # U += jnp.clip(jnp.sum(weights.reshape(num_traj,1,1,1) *  E.reshape(num_traj,N,horizon,2),axis=0),U_lower,U_upper)
 
     # generate the true target state
-    target_states_true = jnp.array(generate_data_state(target_state,N_steps, M_target, dm,dt=dt_ckf))
+    target_states_true = jnp.array(generate_data_state(target_state,N_steps, M_target, dm,dt=dt_ckf,Q=Q))
 
 
     FIMs = np.zeros(N_steps//update_freq_control + 1)
@@ -289,7 +293,7 @@ if __name__ == "__main__":
     fig_mse,axes_mse = plt.subplots(1,figsize=(10,5))
     target_state_mse = np.zeros(N_steps)
 
-    for step in range(1,N_steps):
+    for step in range(1,N_steps+1):
         target_state_true = target_states_true[:, step-1].reshape(M_target,dm)
 
         if (step % update_freq_ckf) == 0:
@@ -380,7 +384,8 @@ if __name__ == "__main__":
 
                         oas = OAS(assume_centered=True).fit(E[weights != 0])
                         cov_prime = jnp.array(oas.covariance_)
-
+                        if mppi_iter == 0:
+                            print("Oracle Approx Shrinkage: ",np.round(oas.shrinkage_,5))
 
                 mppi_round_time_end = time()
 
@@ -432,7 +437,13 @@ if __name__ == "__main__":
             axes_main[0].plot(radar_state_init[:, 0], radar_state_init[:, 1], 'mo',
                      label="Radar Init")
 
-            imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),
+            thetas = jnp.arcsin(target_state_true[:, 2] / R_sensors_to_targets)
+            radius_projected = R_sensors_to_targets * jnp.cos(thetas)
+
+            print("Target Height :",target_state_true[:,2])
+            print("Radius Projected: ",radius_projected)
+
+            imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
                            radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
                            cost_MPPI=cost_MPPI, FIMs=FIMs[:(step//update_freq_control)],
                            R2T=radius_projected, R2R=R_sensors_to_sensors,C=C,

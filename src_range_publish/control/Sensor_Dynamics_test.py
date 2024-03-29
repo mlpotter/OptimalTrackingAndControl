@@ -3,7 +3,7 @@ from src_range_publish.control.Sensor_Dynamics import *
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
-    test_option = 1
+    test_option = 2
 
     dt = 0.1
 
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         plt.axis('equal')
         plt.show()
 
-        print(jnp.round(unicycle_states,2))
+        print(jnp.round(unicycle_states,3))
 
         print("Check accel Limits")
         a_inputs = jnp.array([50.0, 50.0, -50.0, -50.0,-50])

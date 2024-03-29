@@ -2,6 +2,11 @@ import src_range_publish.tracking.cubatureKalmanFilter as cubatureKalmanFilter
 import numpy as np
 import matplotlib.pyplot as plt
 from copy import deepcopy
+from src_range_publish.FIM_new.FIM_RADAR import Single_FIM_Radar,Single_JU_FIM_Radar,FIM_Visualization
+from src_range_publish.FIM_new.FIM_RADAR import Single_JU_FIM_Radar
+from jax.tree_util import Partial as partial
+
+from tqdm import tqdm
 
 def place_sensors(xlim,ylim,N):
     N = np.sqrt(N).astype(int)
@@ -26,9 +31,9 @@ def generate_data_state(target_state,N, M_target, dm, dt,Q):
     target_state = target_state.reshape(-1,1)
 
     x = np.zeros((dm*M_target, N)) # state
-    noise = np.random.multivariate_normal(np.zeros(dm*M_target,),Q,size=(N,)).T
+
     for n in range(N):
-        target_state = A @ target_state + noise[:,[n]]
+        target_state = A @ target_state + np.random.multivariate_normal(np.zeros(A.shape[0]),Q).reshape(-1,1)
 
         x[:, n] =target_state.ravel()
 
@@ -103,7 +108,7 @@ def generate_measurement_noisy(target_state, radar_position,C,M_target,dm,N_rada
 # Main
 if __name__ == '__main__':
     np.random.seed(10)
-    N  = 1000
+    N  = 150
 
     # ==================== RADAR PARAMETERS ========================= #
     c = 299792458
@@ -121,11 +126,11 @@ if __name__ == '__main__':
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * np.pi) ** 3
     Pr = K / (R ** 4)
 
-    SNR = -0
+    SNR = -20
 
 
     # ================== TARGET and RADAR STATES ======================== #
-    N_radar = 8
+    N_radar = 4
 
     # radar_position = place_sensors([-400, 400], [-400, 400], N_radar)
     radar_position = np.random.uniform(size=(N_radar, 2), low=-300, high=300)
@@ -138,9 +143,9 @@ if __name__ == '__main__':
     #                          [20.4, 20.32, z_elevation-10, 25, 10, 0]])  # , #,
 
 
-    target_state = np.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
-                    [-100.4,-30.32,z_elevation-15,20,-10,0], #,
-                    [30,30,z_elevation+20,-10,-10,0]])#,
+    target_state = np.array([[0.0, -0.0,z_elevation+10, 25., 20,0]]) #, #,#,
+                    # [-100.4,-30.32,z_elevation-15,20,-10,0], #,
+                    # [30,30,z_elevation+20,-10,-10,0]])#,
 
     M_target, dm = target_state.shape;
 
@@ -162,7 +167,7 @@ if __name__ == '__main__':
     #                       [0, 0, 0, 1, 0, 0],
     #                       [0, 0, 0, 0, 1., 0],
     #                       [0, 0, 0, 0, 0, 1]])
-    dt = 0.025
+    dt = 0.1
     Q_single = np.array([
         [(dt ** 4) / 4, 0, 0, (dt ** 3) / 2, 0, 0],
         [0, (dt ** 4) / 4, 0, 0, (dt ** 3) / 2, 0],
@@ -172,61 +177,94 @@ if __name__ == '__main__':
         [0, 0, (dt ** 3) / 2, 0, 0, (dt ** 2)]
     ]) * sigmaQ ** 2
 
+    # 2D constant velocity model
+    A_single = np.array([[1., 0, 0, dt, 0, 0],
+                         [0, 1., 0, 0, dt, 0],
+                         [0, 0, 1, 0, 0, dt],
+                         [0, 0, 0, 1, 0, 0],
+                         [0, 0, 0, 0, 1., 0],
+                         [0, 0, 0, 0, 0, 1]])
+
+    A = np.kron(np.eye(M_target), A_single);
+
     # A = np.kron(np.eye(M_target), A_single);
     Q = np.kron(np.eye(M_target), Q_single);
+    Q = Q + np.eye(Q.shape[0])*1e-5
     G = np.eye(N_radar)
 
 
-    true_target_state = generate_data_state(target_state,N, M_target, dm,dt,Q)
+    true_target_state = generate_data_state(target_state,N, M_target, dm,dt)
 
     # plt.figure()
     # plt.plot(true_target_state.T.reshape(-1,M_target,dm)[:,:,0],true_target_state.T.reshape(-1,M_target,dm)[:,:,1])
     # plt.show()
 
-    measurement = generate_data_measurement(true_target_state, radar_position,C,M_target,dm,N_radar)
+    trials = 20
+    RMSE_bound = np.zeros((N,))
+    RMSE = np.zeros((N,trials))
 
-    ckf = cubatureKalmanFilter.CubatureKalmanFilter(dim_x=M_target*dm, dim_z=M_target*N_radar, dt=dt,
-                                                     hx=measurement_model, fx=transition_model)
+    def is_pos_def(x):
+        return np.all(np.linalg.eigvals(x) > -1e8)
+
+    for trial in tqdm(range(trials)):
+        measurement = generate_data_measurement(true_target_state, radar_position, C, M_target, dm, N_radar)
+
+        ckf = cubatureKalmanFilter.CubatureKalmanFilter(dim_x=M_target * dm, dim_z=M_target * N_radar, dt=dt,
+                                                        hx=measurement_model, fx=transition_model)
 
 
-    np.savetxt("measurement.csv", measurement, delimiter=",", fmt='%.22e')
-    # initialze Cubature filter
-    x_est_ckf = np.zeros((dm*M_target, N))
+        ckf.x = np.array(target_state) + np.random.randn(M_target * dm) * 25
+        ckf.x = ckf.x.reshape(-1, 1)
 
-    ckf.x = np.array(target_state) + np.random.randn(M_target*dm) * 25
-    ckf.x = ckf.x.reshape(-1,1)
+        target_state_init = deepcopy(ckf.x)
 
-    target_state_init = deepcopy(ckf.x)
-    print("True Target State Init: ",target_state)
-    print("CKF Target State Init: ",target_state_init)
+        ckf.P = np.eye(M_target * dm) * 5
+        ckf.Q = Q  # + np.eye(M_target*dm)*1e-4
 
-    ckf.P = np.eye(M_target*dm) * 25
-    ckf.Q = Q #+ np.eye(M_target*dm)*1e-4
-    # ckf.R = np.diag(np.ones(dm*M_target))
+        # ckf.R = np.diag(np.ones(dm*M_target))
 
-    np.savetxt("x0.csv", ckf.x, delimiter=",", fmt='%.22e')
-    # filtering
-    for n in range(N):
+        J = deepcopy(np.linalg.solve(ckf.P,np.eye(ckf.P.shape[0])))
 
-        # CKF
-        ckf.predict(fx_args=(M_target,))
-        # measurement_next_expected = measurement_model(true_target_state[:,n],radar_position)
-        measurement_next_expected = measurement_model(ckf.x_prior.ravel(),radar_position,M_target,dm,N_radar)
+        Q_inv = np.linalg.solve(Q, np.eye(Q.shape[0]))
+        IM_fn = partial(Single_JU_FIM_Radar, A=A, Qinv=Q_inv, C=C)
 
-        ckf.R = np.diag(C*(measurement_next_expected/2) ** 4)
+        x_est_ckf = np.zeros((dm * M_target, N))
 
-        # ckf.predict_propogate(ckf.x, ckf.P, 10, dt=dt*5, fx_args=(M_target,))
-        range_actual = measurement_model(true_target_state[:,n], radar_position[:,:3], M_target, dm,N_radar)
+        # filtering
+        for n in range(N):
 
-        measurement = range_actual + np.random.randn()*(C*(range_actual.ravel()/2) ** 4)
-        # ckf.update(np.reshape(measurement[:, n],(-1,1)), hx_args=(radar_position,M_target,dm,N_radar))
-        ckf.update(np.reshape(measurement,(-1,1)), hx_args=(radar_position,M_target,dm,N_radar))
+            # CKF
+            ckf.predict(fx_args=(M_target,))
+            # measurement_next_expected = measurement_model(true_target_state[:,n],radar_position)
+            measurement_next_expected = measurement_model(ckf.x_prior.ravel(),radar_position,M_target,dm,N_radar)
 
-        x_est_ckf[:, n] = ckf.x.reshape(M_target*dm, )
+            ckf.R = np.diag(C*(measurement_next_expected/2) ** 4)
+
+            # ckf.predict_propogate(ckf.x, ckf.P, 10, dt=dt*5, fx_args=(M_target,))
+            range_actual = measurement_model(true_target_state[:,n], radar_position[:,:3], M_target, dm,N_radar)
+
+            measurement = range_actual + np.random.randn()*(C*(range_actual.ravel()/2) ** 4)
+            # ckf.update(np.reshape(measurement[:, n],(-1,1)), hx_args=(radar_position,M_target,dm,N_radar))
+            ckf.update(np.reshape(measurement,(-1,1)), hx_args=(radar_position,M_target,dm,N_radar))
+
+
+            J = IM_fn(radar_state=radar_position.reshape(N_radar,3),target_state= true_target_state[:,n].reshape(M_target,dm),J=J) #[JU_FIM_D_Radar(ps=ps, q=m0[[i],:], Pt=Pt, Gt=Gt, Gr=Gr, L=L, lam=lam, rcs=rcs, A=A_single, Q=Q_single, J=Js[i],s=s) for i in range(len(Js))]
+
+            PCRLB = np.linalg.solve(J,np.eye(J.shape[0]))
+
+            RMSE_bound_n = np.sqrt(np.trace(PCRLB))
+            # print(RMSE_bound_n)
+            RMSE_bound[n] = RMSE_bound_n
+            RMSE[n,trial] = np.sqrt(np.trace(ckf.P)) #np.sqrt(np.sum((ckf.x.ravel() - true_target_state[:,n].ravel())**2))
+
+            eigvals = np.linalg.eigvals(ckf.P - PCRLB)
+            print(f"N={n}",eigvals.min(),eigvals.max(),RMSE_bound_n-np.sqrt(np.trace(ckf.P)))
+
+            # print(is_pos_def(ckf.P-PCRLB),np.linalg.eigvals(ckf.P-PCRLB).min())
+            x_est_ckf[:, n] = ckf.x.reshape(M_target * dm, )
 
     print("Final Target State: ",ckf.x.ravel())
-    np.savetxt("x_est_ckf.csv", x_est_ckf, delimiter=",", fmt='%.22e')
-    # plot
+
     plt.figure()
     plt.plot(x_est_ckf.T.reshape(-1,M_target,dm)[:,:,0], x_est_ckf.T.reshape(-1,M_target,dm)[:,:,1], 'b-o', label='CKF estimate',alpha=0.5)
     plt.plot(target_state_init.reshape(M_target,dm)[:,0], target_state_init.reshape(M_target,dm)[:,1], 'gX', label='CKF Initial Guess',alpha=0.5)
@@ -236,7 +274,13 @@ if __name__ == '__main__':
     plt.legend()
     plt.show()
 
-    plt.figure()
-    plt.plot(x_est_ckf.T.reshape(-1,M_target,dm)[:,:,2], 'b-o', label='CKF estimate Elevation',alpha=0.5)
-    plt.legend()
-    plt.show()
+
+    fig,axes = plt.subplots(1,2,figsize=(10,5))
+    axes[0].plot(RMSE_bound,label="PCRLB RMSE Bound")
+    # axes[0].set_yscale("log")
+    axes[0].legend()
+    axes[1].plot(RMSE_bound,label="PCRLB RMSE Bound")
+    axes[1].plot(RMSE.mean(axis=1),'--',label="CKF RMSE")
+    axes[1].set_yscale("log")
+    axes[1].legend()
+    fig.show()

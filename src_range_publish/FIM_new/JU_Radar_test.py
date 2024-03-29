@@ -30,9 +30,9 @@ if __name__ == "__main__":
 
 
 
-    seed = 555
+    seed = 123
     key = jax.random.PRNGKey(seed)
-    np.random.seed(555)
+    np.random.seed(123)
 
     # Experiment Choice
     update_steps = 0
@@ -43,39 +43,38 @@ if __name__ == "__main__":
 
     # Save frames as a GIF
     gif_filename = "radar_optimal_RICE.gif"
-    gif_savepath = os.path.join("..", "..", "images","gifs")
+    gif_savepath = os.path.join("..", "..", "images","gifs","jaxoptimizer_less_radars")
     photo_dump = os.path.join("tmp_images")
     remove_photo_dump = True
     os.makedirs(photo_dump, exist_ok=True)
+    os.makedirs(gif_savepath,exist_ok=True)
 
     frame_skip = 1
     tail_size = 5
     plot_size = 15
     T = .1
-    NT = 250
-    N = 6
+    NT = 1000
+    N = 3
 
     # ==================== RADAR CONFIGURATION ======================== #
     c = 299792458
-    fc = 1e9;
-    Gt = 2000;
-    Gr = 2000;
+    fc = 1e8;
+    Gt = 200;
+    Gr = 200;
     lam = c / fc
     rcs = 1;
     L = 1;
-    alpha = (jnp.pi)**2 / 3
-    B = 0.05 * 10**5
-
 
     # calculate Pt such that I achieve SNR=x at distance R=y
-    R = 1000
+    R = 500
 
-    Pt = 10000
+    Pt = 1000
     K = Pt * Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi) ** 3
     Pr = K / (R ** 4)
 
-    # get the power of the noise of the signal
-    SNR=0
+    # get the power of the noise of the signalf
+    SNR=-20
+
 
 
 
@@ -90,7 +89,7 @@ if __name__ == "__main__":
     # ps = place_sensors([-100,100],[-100,100],N)
     key, subkey = jax.random.split(key)
     #
-    ps = jnp.concatenate((jax.random.uniform(key, shape=(N, 2), minval=-100, maxval=100),jnp.zeros((N,1))),axis=-1)
+    ps = jnp.concatenate((jax.random.uniform(key, shape=(N, 2), minval=-400, maxval=400),jnp.zeros((N,1))),axis=-1)
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     vs = jnp.zeros((ps.shape[0],1))
     avs = jnp.zeros((ps.shape[0],1))
@@ -102,10 +101,10 @@ if __name__ == "__main__":
     #                 [10,10,10,10],
     #                 [20,20,5,-5]])
     z_elevation=150
-    qs = jnp.array([[0.0, -0.0,z_elevation, 15., 10,0], #,#,
-                    [-50.4,30.32,z_elevation,-10,-5,0], #,
-                    [10,10,z_elevation,5,5,0],
-                    [20,20,z_elevation,2.5,-2.5,0]])
+    qs = jnp.array([[0.0, -0.0,z_elevation, 20., 10,0], #,#,
+                    [15.4,15.32,z_elevation,15,20,0], #,
+                    [10,10,z_elevation,17,19,0],
+                    [20,20,z_elevation,6,8,0]])
 
     M, dm = qs.shape;
     N, dn = ps.shape;
