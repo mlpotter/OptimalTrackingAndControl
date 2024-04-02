@@ -8,3 +8,4 @@
 /derivations/
 *tmp_images
 *__pycache__
+*results

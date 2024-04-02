@@ -482,7 +482,7 @@ if __name__ == "__main__":
     print("Experiment Settings Saved @ ",args.results_savepath)
 
     # Convert and write JSON object to file
-    with open("hyperparameters.json", "w") as outfile:
+    with open(os.path.join("hyperparameters.json",args.results_savepath), "w") as outfile:
         json.dump(vars(args), outfile)
 
     os.makedirs(args.tmp_img_savepath,exist_ok=True)
