@@ -1,4 +1,6 @@
 import jax.numpy as jnp
+import jax
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import LineCollection
@@ -73,6 +75,12 @@ def visualize_tracking(target_state_true,target_state_ckf,target_states_true,
     M_target,dm = target_state_true.shape
     N_target,dn = radar_state.shape
 
+    thetas_ckf = jnp.arcsin(target_state_ckf[:, 2] / R2T)
+    radius_projected_ckf = R2T * jnp.cos(thetas_ckf)
+
+    thetas_true = jnp.arcsin(target_state_true[:, 2] / R2T)
+    radius_projected_true = R2T * jnp.cos(thetas_true)
+
     target_traj_segs =     LineCollection( np.swapaxes(target_states_true[:,:,:2],1,0), colors="g", alpha=0.5)
 
     # axes[0].plot(radar_state_history[0, :, 0], radar_state_history[0, :, 1], 'md', label="Sensor Init")
@@ -83,7 +91,12 @@ def visualize_tracking(target_state_true,target_state_ckf,target_states_true,
 
     for m in range(M_target):
         axes[0].add_patch(
-            Circle(target_state_true[m, :2], R2T[m], edgecolor="green", fill=False, lw=1,
+            Circle(target_state_true[m, :2], radius_projected_true[m], edgecolor="green", fill=False, lw=1,
+                   linestyle="-", label="_nolegend_"))
+
+    for m in range(M_target):
+        axes[0].add_patch(
+            Circle(target_state_ckf[m, :2], radius_projected_ckf[m], edgecolor="blue", fill=False, lw=1,
                    linestyle="--", label="_nolegend_"))
 
     for n in range(N_target):
@@ -149,3 +162,22 @@ def place_sensors(xlim,ylim,N):
     ys = jnp.linspace(ylim[0],ylim[1],N)
     X,Y = jnp.meshgrid(xs,ys)
     return jnp.column_stack((X.ravel(),Y.ravel()))
+
+def place_sensors_restricted(key,target_state,R2R,R2T,min_grid,max_grid,N_radar):
+    valid_radar_positions = False
+    zeros = jnp.zeros((N_radar,1))
+    while not valid_radar_positions:
+        ps = jax.random.uniform(key, shape=(N_radar, 2), minval=min_grid, maxval=max_grid)
+        ps = jnp.concatenate((ps,zeros),axis=-1)
+
+        R2R_distance = jnp.linalg.norm(ps[jnp.newaxis, :, :] - ps[:, jnp.newaxis, :], axis=-1)
+        r2r_bool = jnp.all(R2R_distance[jnp.triu_indices_from(R2R_distance,k=1)] >= R2R)
+
+        R2T_distance = jnp.linalg.norm(target_state[jnp.newaxis, :, :3] - ps[:, jnp.newaxis, :], axis=-1)
+        r2t_bool = jnp.all(R2T_distance >= R2T)
+        key, subkey = jax.random.split(key)
+
+        if r2r_bool and r2t_bool:
+            valid_radar_positions=True
+
+    return ps,key

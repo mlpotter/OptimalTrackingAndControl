@@ -46,10 +46,10 @@ Q =  [
     0, 0, (dt ^ 3) / 2, 0, 0, (dt ^ 2)] * sigma_q ^ 2;
 
 
-radar_pos = [0 0 0;
-            80 80 0;
-            -15 30 0;
-            0 30 0];
+radar_pos = [0 0 25;
+            80 80 25;
+            -15 30 5;
+            0 30 5];
 
 N_radar = size(radar_pos,1);
 N_dim = size(A,1);
