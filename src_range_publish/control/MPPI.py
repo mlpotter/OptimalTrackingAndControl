@@ -9,7 +9,7 @@ from jax import jit
 from jax.tree_util import Partial as partial
 from jax import vmap
 
-from src_range_publish.control.Sensor_Dynamics import unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator,UNI_SI_U_LIM,UNI_SI_U_LIM,UNI_DI_U_LIM
+from control.Sensor_Dynamics import unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator,UNI_SI_U_LIM,UNI_SI_U_LIM,UNI_DI_U_LIM
 
 from jaxopt import ScipyBoundedMinimize
 import matplotlib.pyplot as plt

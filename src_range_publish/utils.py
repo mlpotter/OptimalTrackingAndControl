@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import LineCollection
 
-from src_range_publish.FIM_new.FIM_RADAR import FIM_Visualization
+from FIM_new.FIM_RADAR import FIM_Visualization
 import numpy as np
 import os
 

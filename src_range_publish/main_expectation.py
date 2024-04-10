@@ -166,7 +166,7 @@ def main(args):
 
     MPC_obj = MPC_decorator(IM_fn=IM_fn,kinematic_model=kinematic_model,dt=args.dt_control,gamma=args.gamma,method=mpc_method)
 
-    MPPI_scores = MPPI_scores_wrapper(MPC_obj)
+    MPPI_scores = jit(vmap(MPPI_scores_wrapper(MPC_obj),in_axes=(None,0,None,None,None)))
 
     MPPI = MPPI_wrapper(kinematic_model=kinematic_model,dt=args.dt_control)
 
@@ -180,7 +180,7 @@ def main(args):
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi) #jnp.tile(0., (ps.shape[0], 1, 1))
     # dt_controls = jnp.tile(dt_control, (N, 1))
 
-    collision_penalty_vmap = jit( vmap(collision_penalty, in_axes=(0, None, None)))
+    collision_penalty_vmap = jit(vmap(vmap(collision_penalty, in_axes=(0, None, None)),in_axes=(None,0,None)))
     self_collision_penalty_vmap = jit(vmap(self_collision_penalty, in_axes=(0, None)))
     speed_penalty_vmap = jit(vmap(speed_penalty, in_axes=(0, None)))
 
@@ -236,8 +236,9 @@ def main(args):
             if (step % update_freq_control == 0):
                 # the cubature kalman filter points propogated over horizon. Horizon x # Sigma Points (2*dm) x (Number of targets * dim of target)
                 target_states_ckf = ckf.predict_propogate(ckf.x, ckf.P, args.horizon, dt=args.dt_control, fx_args=(M_target,))
-                target_states_ckf = np.swapaxes(target_states_ckf.mean(axis=1).reshape(args.horizon, M_target, dm), 1, 0)
+                # target_states_ckf = np.swapaxes(target_states_ckf.mean(axis=1).reshape(args.horizon, M_target, dm), 1, 0)
 
+                target_states_ckf = np.moveaxis(target_states_ckf.reshape(args.horizon,dm*M_target*2,M_target,dm),source=0,destination=-2)
 
                 mppi_start_time = time()
 
@@ -248,6 +249,7 @@ def main(args):
 
 
                 for mppi_iter in range(args.MPPI_iterations):
+                    print("here'")
                     start = time()
                     key, subkey = jax.random.split(key)
 
@@ -270,13 +272,13 @@ def main(args):
                     mppi_score_start = time()
                     # Score all the rollouts
                     cost_trajectory = MPPI_scores(radar_state, target_states_ckf, V,
-                                              A=A,J=J)
+                                              A,J).mean(axis=0)
 
                     mppi_score_end = time()
 
 
                     cost_collision_r2t = collision_penalty_vmap(radar_states_MPPI[...,1:args.horizon+1,:], target_states_ckf,
-                                           args.R2T)
+                                           args.R2T).mean(axis=0)
 
                     cost_collision_r2t = jnp.sum((cost_collision_r2t * args.gamma**(jnp.arange(args.horizon))) / jnp.sum(args.gamma**jnp.arange(args.horizon)),axis=-1)
 
@@ -353,7 +355,6 @@ def main(args):
         J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),
                   J=J)
 
-        # print(jnp.linalg.slogdet(J)[1].ravel().item())
         FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J)[1].ravel().item()
 
         if ((step % args.frame_skip) == 0) and ((step % update_freq_control) == 0) and args.save_images:
@@ -399,7 +400,6 @@ def main(args):
 
         target_state_mse[step-1] = jnp.sqrt(jnp.sum(ckf.x - target_state_true.reshape(-1,1))**2)
 
-
     np.savetxt(os.path.join(args.results_savepath,f'rmse_{args.seed}.csv'), np.c_[np.arange(1,args.N_steps+1),target_state_mse], delimiter=',',header="k,rmse",comments='')
 
     if args.save_images:
@@ -428,7 +428,7 @@ if __name__ == "__main__":
     parser.add_argument('--results_savepath', default="results",type=str, help='Folder to save bigger results folder')
     parser.add_argument('--experiment_name', default="experiment",type=str, help='Name of folder to save temporary images to make GIFs')
     parser.add_argument('--move_radars', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to allow the radars to move? --move_radars for yes --no-move_radars for no')
-    parser.add_argument('--remove_tmp_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to remove tmp images? --remove_tmp_images for yes --no-remove_tmp_images for no')
+    parser.add_argument('--remove_tmp_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to remove tmp images? --move_radars for yes --no-move_radars for no')
     parser.add_argument('--save_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to saves images/gifs? --save_images for yes --no-save_images for no')
     parser.add_argument('--fim_method', default="Standard_FIM",type=str, help='FIM Calculation [Standard_FIM,PCRLB]')
 
@@ -486,12 +486,12 @@ if __name__ == "__main__":
     print("Experiment Saved @ ",args.results_savepath)
     print("Experiment Settings Saved @ ",args.results_savepath)
 
-
     os.makedirs(args.tmp_img_savepath,exist_ok=True)
     os.makedirs(args.results_savepath,exist_ok=True)
 
     # Convert and write JSON object to file
     with open(os.path.join(args.results_savepath,"hyperparameters.json"), "w") as outfile:
         json.dump(vars(args), outfile)
+
 
     main(args)
