@@ -5,6 +5,7 @@ import numpy as np
 from glob import glob
 
 from subprocess import Popen
+import sys
 
 os.makedirs("logs",exist_ok=True)
 
@@ -86,3 +87,4 @@ for move_radar in move_radars:
                     file_full = f"python main_expectation.py {file}"
                     print(f"sbatch execute.bash '{file_full}'")
                     Popen(f"sbatch execute.bash '{file_full}'", shell=True)
+                    sys.exit()

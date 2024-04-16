@@ -2,6 +2,9 @@ from jax import config
 config.update("jax_enable_x64", True)
 import numpy as np
 import jax
+
+# jax.default_device(jax.devices("gpu")[0])
+
 import jax.numpy as jnp
 
 from sklearn.covariance import OAS
@@ -249,7 +252,6 @@ def main(args):
 
 
                 for mppi_iter in range(args.MPPI_iterations):
-                    print("here'")
                     start = time()
                     key, subkey = jax.random.split(key)
 
@@ -480,11 +482,14 @@ if __name__ == "__main__":
     from datetime import datetime
     from pytz import timezone
     import json
+    from jax.lib import xla_bridge
 
     tz = timezone('EST')
     print("Experiment State @ ",datetime.now(tz))
     print("Experiment Saved @ ",args.results_savepath)
     print("Experiment Settings Saved @ ",args.results_savepath)
+    print("Device using: ", xla_bridge.get_backend().platform)
+    print("FIM Method: ", args.fim_method)
 
     os.makedirs(args.tmp_img_savepath,exist_ok=True)
     os.makedirs(args.results_savepath,exist_ok=True)
