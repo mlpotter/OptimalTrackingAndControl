@@ -11,7 +11,7 @@ from sklearn.covariance import OAS
 
 from FIM_new.FIM_RADAR import Single_JU_FIM_Radar,Single_FIM_Radar,FIM_Visualization
 from control.Sensor_Dynamics import UNI_SI_U_LIM,UNI_DI_U_LIM,unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator
-from utils import visualize_tracking,visualize_control,visualize_target_mse,place_sensors_restricted
+from utils import visualize_tracking,visualize_control,visualize_target_mse,place_sensors_restricted,visualize_tracking3D
 from control.MPPI import MPPI_scores_wrapper,weighting,MPPI_wrapper #,MPPI_adapt_distribution
 from objective_fns.objectives import *
 import tracking.cubatureKalmanFilter as cubatureKalmanFilter
@@ -216,6 +216,10 @@ def main(args):
     fig_control,axes_control = plt.subplots(1,2,figsize=(10,5))
     imgs_control =  []
 
+    fig_main3d = plt.figure()
+    ax_main3d = fig_main3d.add_subplot(111, projection='3d')
+    imgs_main3d =  []
+
 
     fig_mse,axes_mse = plt.subplots(1,figsize=(10,5))
     target_state_mse = np.zeros(args.N_steps)
@@ -369,7 +373,16 @@ def main(args):
             radius_projected = args.R2T * jnp.cos(thetas)
 
             print("Target Height :",target_state_true[:,2])
+            print("CKF Target Height :",ckf.x.reshape(M_target,dm)[:,2])
             print("Radius Projected: ",radius_projected)
+
+
+            imgs_main3d.append(visualize_tracking3D(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
+                           radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
+                           cost_MPPI=cost_MPPI,
+                           R2T=args.R2T, R2R=args.R2R,
+                           fig=fig_main3d, ax=ax_main3d, step=step,
+                           tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_3D"))
 
             imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
                            radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
@@ -406,6 +419,9 @@ def main(args):
 
     if args.save_images:
         visualize_target_mse(target_state_mse,fig_mse,axes_mse,args.results_savepath,filename="target_mse")
+
+        images = [imageio.imread(file) for file in imgs_main3d]
+        imageio.mimsave(os.path.join(args.results_savepath, f'MPPI_MPC_AIS={args.AIS_method}_FIM={args.fim_method}3d.gif'), images, duration=0.1)
 
         images = [imageio.imread(file) for file in imgs_main]
         imageio.mimsave(os.path.join(args.results_savepath, f'MPPI_MPC_AIS={args.AIS_method}_FIM={args.fim_method}.gif'), images, duration=0.1)

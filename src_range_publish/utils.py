@@ -4,6 +4,8 @@ import jax
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import LineCollection
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
 from FIM_new.FIM_RADAR import FIM_Visualization
 import numpy as np
@@ -155,6 +157,99 @@ def visualize_tracking(target_state_true,target_state_ckf,target_states_true,
     axes[2].cla()
 
     return file_savepth
+
+
+
+def plot_wireframe_sphere(center, radius,ax,color="r"):
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+
+    # Create data for a wireframe sphere
+    u = np.linspace(0, 2 * np.pi, 10)
+    v = np.linspace(0, np.pi, 10)
+    x = center[0] + radius * np.outer(np.cos(u), np.sin(v))
+    y = center[1] + radius * np.outer(np.sin(u), np.sin(v))
+    z = center[2] + radius * np.outer(np.ones(np.size(u)), np.cos(v))
+
+    # Plot the wireframe sphere
+    ax.plot_wireframe(x, y, z, color=color,alpha=0.05,label="_nolegend_")
+
+    # # Plot the center point
+    # ax.scatter(center[0], center[1], center[2], color=color, s=100)
+
+def visualize_tracking3D(target_state_true,target_state_ckf,target_states_true,
+                       cost_MPPI,
+                       radar_state,radar_states_MPPI,
+                       R2T,R2R,
+                       fig,ax,step,tmp_photo_dir,filename="visualize"):
+
+    os.makedirs(tmp_photo_dir,exist_ok=True)
+    file_savepth = os.path.join(tmp_photo_dir,filename+f"_{step}.png")
+
+    # Main figure
+
+    M_target,dm = target_state_true.shape
+    N_target,dn = radar_state.shape
+
+    linecolltraj = np.swapaxes(target_states_true[:, :, :3], 1, 0)
+    # linecolltraj = np.concatenate((linecolltraj,np.zeros((linecolltraj.shape[0],linecolltraj.shape[1],1))),axis=-1)
+    target_traj_segs =     Line3DCollection( linecolltraj, colors="g", alpha=0.5)
+
+    # axes[0].plot(radar_state_history[0, :, 0], radar_state_history[0, :, 1], 'md', label="Sensor Init")
+    ax.scatter(target_state_true[:, 0].ravel(), target_state_true[:, 1].ravel(), target_state_true[:, 2].ravel(),color='g', marker="o",label="Target Position")
+    ax.add_collection3d(target_traj_segs)
+    ax.scatter(radar_state[:, 0].ravel(), radar_state[:, 1].ravel(),radar_state[:, 2].ravel(), color='r', marker="*",label="Radar")
+    ax.scatter(target_state_ckf[:, 0].ravel(), target_state_ckf[:, 1].ravel(),target_state_ckf[:, 2].ravel(), color='b',marker="X", label="CKF Predict")
+
+    # for m in range(M_target):
+    #     plot_wireframe_sphere(target_state_true[m, :3], R2T, ax,color="g")
+
+    for m in range(M_target):
+        plot_wireframe_sphere(target_state_ckf[m, :3], R2T,ax,color="b")
+
+
+    for n in range(N_target):
+        plot_wireframe_sphere(radar_state[n, :3], R2R, ax, color="r")
+
+    if radar_states_MPPI is not None:
+        N_traj, _, horizon, _ = radar_states_MPPI.shape
+        horizon = horizon - 1
+
+        mppi_colors = (cost_MPPI - cost_MPPI.min()) / (cost_MPPI.ptp())
+        mppi_color_idx = np.argsort(mppi_colors)[::-1]
+        segs = radar_states_MPPI[mppi_color_idx].reshape(N_traj * N_target, horizon+1, -1, order='F')
+        segs = Line3DCollection(segs[:, :, :3], colors=plt.cm.jet(
+            np.tile(mppi_colors[mppi_color_idx], (N_target, 1)).T.reshape(-1, order='F')), alpha=0.5)
+
+        if step == 0:
+            cost_MPPI = np.ones(cost_MPPI.shape)
+
+
+        ax.add_collection3d(segs)
+
+
+    ax.set_title(f"k={step}")
+
+    ax.legend(bbox_to_anchor=(0.7, 1.45), loc="upper center")
+
+    ax.set_xlabel('X [m]')
+    ax.set_ylabel('Y [m]')
+    ax.set_zlabel('Z [m]')
+
+    ax.view_init(elev=10.)
+
+    ax.set_aspect('equal')
+    ax.grid()
+
+
+    fig.tight_layout()
+
+    fig.savefig(file_savepth)
+
+    ax.cla()
+
+    return file_savepth
+
 
 def place_sensors(xlim,ylim,N):
     N = jnp.sqrt(N).astype(int)
