@@ -90,7 +90,7 @@ for move_radar in move_radars:
                     print(f"GPU Device {deviceIDs[0]}")
                     print(f"tmux new-session -d {file_run} '{file_full}' '{deviceIDs[0]}'")
                     Popen(f"tmux new-session -d bash {file_run} '{file_full}' '{deviceIDs[0]}'",shell=True) #, shell=True,creationflags=CREATE_NEW_CONSOLE)
-                    time.sleep(1)
+                    time.sleep(30)
                 else:
                     print("All GPUs USED AT THIS MOMENT, WAIT UNTIL NEW RESOURCE AVAILABLE")
                     while len(deviceIDs) == 0:
