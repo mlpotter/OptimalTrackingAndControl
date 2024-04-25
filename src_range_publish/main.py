@@ -66,13 +66,13 @@ def main(args):
     #                 [-50.4,30.32,z_elevation,-20,-10,0], #,
     #                 # [10,10,z_elevation,10,10,0],
     #                 [20,20,z_elevation,5,-5,0]])
-    target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
-                    [15.4,15.32,z_elevation+10,15,20,0], #,
-                    [10,10,z_elevation-5,17,19,0],
-                    [20,20,z_elevation-15,6,8,0]])
-    # target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
-    #                 [-100.4,-30.32,z_elevation-15,20,-10,0], #,
-    #                 [30,30,z_elevation+20,-10,-10,0]])#,
+    # target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
+    #                 [15.4,15.32,z_elevation+10,15,20,0], #,
+    #                 [10,10,z_elevation-5,17,19,0],
+    #                 [20,20,z_elevation-15,6,8,0]])
+    target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
+                    [-100.4,-30.32,z_elevation-15,20,-10,0], #,
+                    [30,30,z_elevation+20,-10,-10,0]])#,
 
     ps,key = place_sensors_restricted(key,target_state,args.R2R,args.R2T,-400,400,args.N_radar)
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi)
@@ -185,8 +185,8 @@ def main(args):
     speed_penalty_vmap = jit(vmap(speed_penalty, in_axes=(0, None)))
 
 
-    U1 = jnp.ones((args.N_radar,args.horizon,1)) * args.acc_init
-    U2 = jnp.ones((args.N_radar,args.horizon,1)) * args.ang_acc_init
+    U1 = jnp.ones((args.N_radar,args.horizon,1)) #* args.acc_init
+    U2 = jnp.ones((args.N_radar,args.horizon,1)) #* args.ang_acc_init
     U =jnp.concatenate((U1,U2),axis=-1)
 
     if not args.move_radars:
@@ -195,7 +195,7 @@ def main(args):
         cost_MPPI = None
 
     # # generate radar states at measurement frequency
-    # radar_states = kinematic_model(np.repeat(U, update_freq_control, axis=1)[:, :update_freq_control :],
+    # radar_states = kinematic_model(np.repeat(U, update_freq_control+1, axis=1)[:, :update_freq_control,:],
     #                                radar_state, args.dt_ckf)
 
     # U += jnp.clip(jnp.sum(weights.reshape(args.num_traj,1,1,1) *  E.reshape(args.num_traj,N,args.horizon,2),axis=0),U_lower,U_upper)
@@ -348,7 +348,10 @@ def main(args):
         if step >= update_freq_control:
             # get the radar state
             # print("Here",step,(step%update_freq_control)+1)
-            radar_state = radar_states[:,(step%update_freq_control)+1,:]
+            if args.move_radars:
+                radar_state = radar_states[:,(step%update_freq_control)+1,:]
+            else:
+                radar_state = radar_state
 
         J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),
                   J=J)

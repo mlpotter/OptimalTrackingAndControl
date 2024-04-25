@@ -77,9 +77,10 @@ for move_radar in move_radars:
 
                 filepath = os.path.join(results_savepath,experiment_name+f"_{seed_i}")
                 # print(filepath)
-                if os.path.exists(filepath):
+                rmse_exists = len(glob(os.path.join(filepath, "*rmse*"))) >= 1
+
+                if os.path.exists(filepath) and rmse_exists:
                     print(filepath,"exists")
-                    rmse_exists = len(glob(os.path.join(filepath,"*rmse*"))) >= 1
                     continue
 
                 deviceIDs = GPUtil.getAvailable(order = 'first', limit = 2, maxLoad = 0.5, maxMemory = 0.5, includeNan=False, excludeID=[], excludeUUID=[])

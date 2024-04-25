@@ -17,7 +17,7 @@ seed=np.arange(0,500,2)
 frame_skip=[4]
 dt_ckf=[0.025]
 dt_control=[0.1]
-N_radar=[3]
+N_radar=[6]
 N_steps=[1000]
 move_radars = ["no-move_radars","move_radars"]
 remove_tmp_images = ["remove_tmp_images"]
@@ -63,7 +63,7 @@ alpha5=[0]
 for move_radar in move_radars:
     for seed_i in seed:
         for n_radar in N_radar:
-            experiment_name = os.path.join("experiment1_pcrlb_expectation",f"N_radar={n_radar}-{move_radar}")
+            experiment_name = os.path.join("experiment2_pcrlb",f"N_radar={n_radar}-{move_radar}")
             results_savepath = "results"
             for n_steps in N_steps:
                 file = f"--{move_radar} " \
@@ -75,16 +75,16 @@ for move_radar in move_radars:
                        f"--fim_method='PCRLB'"
 
                 filepath = os.path.join(results_savepath,experiment_name+f"_{seed_i}")
-                # print(filepath)
-                if os.path.exists(filepath):
+                rmse_exists = len(glob(os.path.join(filepath, "*rmse*"))) >= 1
+
+
+                if os.path.exists(filepath) and rmse_exists:
                     print(filepath,"exists")
-                    rmse_exists = len(glob(os.path.join(filepath,"*rmse*"))) >= 1
                     continue
 
                 if blocking:
-                    os.system(f"python main_expectation.py {file}")
+                    os.system(f"python main.py {file}")
                 else:
-                    file_full = f"python main_expectation.py {file}"
+                    file_full = f"python main.py {file}"
                     print(f"sbatch execute.bash '{file_full}'")
                     Popen(f"sbatch execute.bash '{file_full}'", shell=True)
-                    sys.exit()

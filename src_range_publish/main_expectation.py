@@ -197,11 +197,10 @@ def main(args):
         radar_states_MPPI = None
         cost_MPPI = None
 
-    # generate radar states at measurement frequency
-    # radar_states = kinematic_model(np.repeat(U, update_freq_control, axis=1)[:, :update_freq_control+1 :],
+    # # generate radar states at measurement frequency
+    # radar_states = kinematic_model(np.repeat(U, update_freq_control+1, axis=1)[:, :update_freq_control,:],
     #                                radar_state, args.dt_ckf)
 
-    # radar_states = jnp.roll(radar_states, axis=1, shift=1)[:,:-1,:]
 
     # U += jnp.clip(jnp.sum(weights.reshape(args.num_traj,1,1,1) *  E.reshape(args.num_traj,N,args.horizon,2),axis=0),U_lower,U_upper)
 
@@ -358,7 +357,10 @@ def main(args):
         if step >= update_freq_control:
             # get the radar state
             # print("Here",step,(step%update_freq_control)+1)
-            radar_state = radar_states[:,(step%update_freq_control)+1,:]
+            if args.move_radars:
+                radar_state = radar_states[:,(step%update_freq_control)+1,:]
+            else:
+                radar_state = radar_state
 
         J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),
                   J=J)
