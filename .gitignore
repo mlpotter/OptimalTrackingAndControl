@@ -9,3 +9,4 @@
 *tmp_images
 *__pycache__
 *results
+*.ipynb_checkpoints/

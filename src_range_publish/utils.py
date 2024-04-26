@@ -130,6 +130,9 @@ def visualize_tracking(target_state_true,target_state_ckf,target_states_true,
     axes[0].set_title(f"k={step}")
     # axes[0].legend(bbox_to_anchor=(0.5, 1.45),loc="upper center")
     axes[0].legend(bbox_to_anchor=(0.7, 1.45), loc="upper center")
+    axes[0].set_xlabel('x [m]')
+    axes[0].set_ylabel('y [m]')
+
     axes[0].axis('equal')
     axes[0].grid()
 
@@ -141,6 +144,8 @@ def visualize_tracking(target_state_true,target_state_ckf,target_states_true,
     #
     axes[1].scatter(target_state_true[..., 0].ravel(), target_state_true[..., 1].ravel(), s=50, marker="o", color="g")
     axes[1].set_title("Instant Time Objective Function Map")
+    axes[1].set_xlabel('x [m]')
+    axes[1].set_ylabel('y [m]')
     axes[1].axis('equal')
     axes[1].grid()
 

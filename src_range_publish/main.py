@@ -369,6 +369,7 @@ def main(args):
             radius_projected = args.R2T * jnp.cos(thetas)
 
             print("Target Height :",target_state_true[:,2])
+            print("CKF Target Height :",ckf.x.reshape(M_target,dm)[:,2])
             print("Radius Projected: ",radius_projected)
 
             imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],

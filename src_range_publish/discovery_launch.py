@@ -19,7 +19,7 @@ dt_ckf=[0.025]
 dt_control=[0.1]
 N_radar=[6]
 N_steps=[1000]
-move_radars = ["no-move_radars","move_radars"]
+move_radars = ["move_radars"] #["no-move_radars","move_radars"]
 remove_tmp_images = ["remove_tmp_images"]
 save_images = ["no-save_images"]
 
@@ -63,7 +63,7 @@ alpha5=[0]
 for move_radar in move_radars:
     for seed_i in seed:
         for n_radar in N_radar:
-            experiment_name = os.path.join("experiment2_pcrlb",f"N_radar={n_radar}-{move_radar}")
+            experiment_name = os.path.join("experiment2_sfim",f"N_radar={n_radar}-{move_radar}")
             results_savepath = "results"
             for n_steps in N_steps:
                 file = f"--{move_radar} " \
@@ -72,7 +72,7 @@ for move_radar in move_radars:
                        f"--results_savepath={results_savepath} " \
                        f"--N_radar={n_radar} " \
                        f"--N_steps={n_steps} " \
-                       f"--fim_method='PCRLB'"
+                       f"--fim_method='Standard_FIM'"
 
                 filepath = os.path.join(results_savepath,experiment_name+f"_{seed_i}")
                 rmse_exists = len(glob(os.path.join(filepath, "*rmse*"))) >= 1

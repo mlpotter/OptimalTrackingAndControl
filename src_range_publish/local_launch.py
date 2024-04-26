@@ -83,7 +83,7 @@ for move_radar in move_radars:
                     print(filepath,"exists")
                     continue
 
-                deviceIDs = GPUtil.getAvailable(order = 'first', limit = 2, maxLoad = 0.5, maxMemory = 0.5, includeNan=False, excludeID=[], excludeUUID=[])
+                deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.5, maxMemory = 0.5, includeNan=False, excludeID=[3], excludeUUID=[])
                 print(deviceIDs)
                 if len(deviceIDs) > 0:
                     file_full = f"python main_expectation.py {file}"
