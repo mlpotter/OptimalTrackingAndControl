@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 from sklearn.covariance import OAS
 
-from FIM_new.FIM_RADAR import Single_JU_FIM_Radar,Single_FIM_Radar,FIM_Visualization
+from FIM_new.FIM_RADAR import Single_JU_FIM_Radar,JU_RANGE_SFIM,Single_FIM_Radar,FIM_Visualization
 from control.Sensor_Dynamics import UNI_SI_U_LIM,UNI_DI_U_LIM,unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator
 from utils import visualize_tracking,visualize_control,visualize_target_mse,place_sensors_restricted
 from control.MPPI import MPPI_scores_wrapper,weighting,MPPI_wrapper #,MPPI_adapt_distribution
@@ -163,6 +163,11 @@ def main(args):
     elif args.fim_method == "Standard_FIM":
         IM_fn = partial(Single_FIM_Radar, C=C)
         IM_fn_update = IM_fn
+    elif args.fim_method == "SFIM_bad":
+        sigmaR = 1
+        IM_fn = partial(JU_RANGE_SFIM, R=jnp.eye(M_target*args.N_radar)*sigmaR**2)
+        IM_fn_update = IM_fn
+
 
     MPC_obj = MPC_decorator(IM_fn=IM_fn,kinematic_model=kinematic_model,dt=args.dt_control,gamma=args.gamma,method=mpc_method)
 

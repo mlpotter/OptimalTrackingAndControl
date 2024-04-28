@@ -77,8 +77,33 @@ def Single_JU_FIM_Radar(radar_state,target_state,J,A,Q,C):
     return J
 
 
+
 @jit
-def JU_RANGE_FIM(radar_state,target_state,J,A,Q,R):
+def JU_RANGE_SFIM(radar_state,target_state,J,R):
+
+    N,dn= radar_state.shape
+    M,dm = target_state.shape
+
+    radar_positions = radar_state[:,:3]
+
+    target_positions = target_state[:,:3]
+
+    d = (target_positions[jnp.newaxis, :, :] - radar_positions[:, jnp.newaxis, :])
+
+    distances = jnp.sqrt(jnp.sum(d ** 2, -1, keepdims=True))
+
+    outer_vector = 2*d/distances
+
+    # outer_product = jnp.einsum("ijk,ijl->ijkl",outer_vector,outer_vector).sum(axis=0) * 1/ (sigmaR**2)#(outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
+
+    outer_product = (outer_vector.transpose(1, 2, 0) @ outer_vector.transpose(1, 0, 2))
+
+    # J_standard = jax.scipy.linalg.block_diag(*[jax.scipy.linalg.block_diag(outer_product[m],jnp.zeros((dm-3,dm-3))) for m in range(M)])
+    J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
+    return J
+
+@jit
+def JU_RANGE_PFIM(radar_state,target_state,J,A,Q,R):
 
     N,dn= radar_state.shape
     M,dm = target_state.shape

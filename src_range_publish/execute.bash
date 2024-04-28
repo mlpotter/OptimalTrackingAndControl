@@ -12,9 +12,9 @@
 #number of cores you are requesting
 #SBATCH --cpus-per-task=20
 #memory you are requesting
-#SBATCH --mem=32Gb
+#SBATCH --mem=64Gb
 #partition to use
-# gpu ffor gpu
+# gpu for gpu
 #SBATCH --partition=short
 #####SBATCH --gres=gpu:v100-sxm2:1
 

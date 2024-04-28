@@ -10,16 +10,16 @@ import sys
 os.makedirs("logs",exist_ok=True)
 
 blocking=False
-batch_command = "--job-name=freedom --exclusive --cpus-per-task=18 --mem=20Gb --partition=short"
+batch_command = "--job-name=freedom --exclusive --cpus-per-task=18 --mem=64Gb --partition=short"
 
 # =========================== Experiment Choice ================== #
 seed=np.arange(0,500,2)
 frame_skip=[4]
 dt_ckf=[0.025]
 dt_control=[0.1]
-N_radar=[6]
+N_radar=[3]
 N_steps=[1000]
-move_radars = ["move_radars"] #["no-move_radars","move_radars"]
+move_radars = ["move_radars"]#["no-move_radars" , "move_radars"] #["move_radars"] #["no-move_radars","move_radars"]
 remove_tmp_images = ["remove_tmp_images"]
 save_images = ["no-save_images"]
 
@@ -59,11 +59,12 @@ alpha3=[60]
 alpha4=[1]
 alpha5=[0]
 
+fim_method = 'SFIM_bad'
 
 for move_radar in move_radars:
     for seed_i in seed:
         for n_radar in N_radar:
-            experiment_name = os.path.join("experiment2_sfim",f"N_radar={n_radar}-{move_radar}")
+            experiment_name = os.path.join("experiment1_sfim_bad_expectation",f"N_radar={n_radar}-{move_radar}")
             results_savepath = "results"
             for n_steps in N_steps:
                 file = f"--{move_radar} " \
@@ -72,7 +73,7 @@ for move_radar in move_radars:
                        f"--results_savepath={results_savepath} " \
                        f"--N_radar={n_radar} " \
                        f"--N_steps={n_steps} " \
-                       f"--fim_method='Standard_FIM'"
+                       f"--fim_method={fim_method}"
 
                 filepath = os.path.join(results_savepath,experiment_name+f"_{seed_i}")
                 rmse_exists = len(glob(os.path.join(filepath, "*rmse*"))) >= 1
