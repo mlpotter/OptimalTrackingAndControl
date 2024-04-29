@@ -7,6 +7,8 @@ from glob import glob
 from subprocess import Popen
 import sys
 
+import time
+
 os.makedirs("logs",exist_ok=True)
 
 blocking=False
@@ -19,7 +21,7 @@ dt_ckf=[0.025]
 dt_control=[0.1]
 N_radar=[3]
 N_steps=[1000]
-move_radars = ["move_radars"]#["no-move_radars" , "move_radars"] #["move_radars"] #["no-move_radars","move_radars"]
+move_radars = ["move_radars","no-move_radars"] #["move_radars"] #["no-move_radars","move_radars"]
 remove_tmp_images = ["remove_tmp_images"]
 save_images = ["no-save_images"]
 
@@ -59,33 +61,36 @@ alpha3=[60]
 alpha4=[1]
 alpha5=[0]
 
-fim_method = 'SFIM_bad'
+fim_methods = ['SFIM_bad','SFIM','PFIM']
 
 for move_radar in move_radars:
     for seed_i in seed:
-        for n_radar in N_radar:
-            experiment_name = os.path.join("experiment1_sfim_bad_expectation",f"N_radar={n_radar}-{move_radar}")
-            results_savepath = "results"
-            for n_steps in N_steps:
-                file = f"--{move_radar} " \
-                       f"--seed={seed_i} " \
-                       f"--experiment_name={experiment_name} " \
-                       f"--results_savepath={results_savepath} " \
-                       f"--N_radar={n_radar} " \
-                       f"--N_steps={n_steps} " \
-                       f"--fim_method={fim_method}"
+        for fim_method in fim_methods:
+            for n_radar in N_radar:
+                experiment_name = os.path.join(f"Experiment1_{fim_method}",f"N_radar={n_radar}-{move_radar}")
+                results_savepath = "results"
+                for n_steps in N_steps:
+                    file = f"--{move_radar} " \
+                           f"--seed={seed_i} " \
+                           f"--experiment_name={experiment_name} " \
+                           f"--results_savepath={results_savepath} " \
+                           f"--N_radar={n_radar} " \
+                           f"--N_steps={n_steps} " \
+                           f"--fim_method={fim_method}"
 
-                filepath = os.path.join(results_savepath,experiment_name+f"_{seed_i}")
-                rmse_exists = len(glob(os.path.join(filepath, "*rmse*"))) >= 1
+                    filepath = os.path.join(results_savepath,experiment_name+f"_{seed_i}")
+                    rmse_exists = len(glob(os.path.join(filepath, "*rmse*"))) >= 1
 
 
-                if os.path.exists(filepath) and rmse_exists:
-                    print(filepath,"exists")
-                    continue
+                    if os.path.exists(filepath) and rmse_exists:
+                        print(filepath,"exists")
+                        continue
 
-                if blocking:
-                    os.system(f"python main.py {file}")
-                else:
-                    file_full = f"python main.py {file}"
-                    print(f"sbatch execute.bash '{file_full}'")
-                    Popen(f"sbatch execute.bash '{file_full}'", shell=True)
+                    if blocking:
+                        os.system(f"python main.py {file}")
+                    else:
+                        file_full = f"python main.py {file}"
+                        print(f"sbatch execute.bash '{file_full}'")
+                        Popen(f"sbatch execute.bash '{file_full}'", shell=True)
+
+                    time.sleep(0.1)

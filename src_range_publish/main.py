@@ -66,13 +66,13 @@ def main(args):
     #                 [-50.4,30.32,z_elevation,-20,-10,0], #,
     #                 # [10,10,z_elevation,10,10,0],
     #                 [20,20,z_elevation,5,-5,0]])
-    # target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
-    #                 [15.4,15.32,z_elevation+10,15,20,0], #,
-    #                 [10,10,z_elevation-5,17,19,0],
-    #                 [20,20,z_elevation-15,6,8,0]])
-    target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
-                    [-100.4,-30.32,z_elevation-15,20,-10,0], #,
-                    [30,30,z_elevation+20,-10,-10,0]])#,
+    target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
+                    [15.4,15.32,z_elevation+10,15,20,0], #,
+                    [10,10,z_elevation-5,17,19,0],
+                    [20,20,z_elevation-15,6,8,0]])
+    # target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
+    #                 [-100.4,-30.32,z_elevation-15,20,-10,0], #,
+    #                 [30,30,z_elevation+20,-10,-10,0]])#,
 
     ps,key = place_sensors_restricted(key,target_state,args.R2R,args.R2T,-400,400,args.N_radar)
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi)
@@ -157,10 +157,10 @@ def main(args):
 
     J = jnp.linalg.inv(ckf.P)
 
-    if args.fim_method == "PCRLB":
+    if args.fim_method == "PFIM":
         IM_fn = partial(Single_JU_FIM_Radar, A=A, Q=Q, C=C)
         IM_fn_update = partial(Single_JU_FIM_Radar, A=A_ckf, Q=Q_ckf, C=C)
-    elif args.fim_method == "Standard_FIM":
+    elif args.fim_method == "SFIM":
         IM_fn = partial(Single_FIM_Radar, C=C)
         IM_fn_update = IM_fn
     elif args.fim_method == "SFIM_bad":
@@ -377,18 +377,22 @@ def main(args):
             print("CKF Target Height :",ckf.x.reshape(M_target,dm)[:,2])
             print("Radius Projected: ",radius_projected)
 
-            imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
+            try:
+                imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
                            radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
                            cost_MPPI=cost_MPPI, FIMs=FIMs[:(step//update_freq_control)],
                            R2T=args.R2T, R2R=args.R2R,C=C,
                            fig=fig_main, axes=axes_main, step=step,
                            tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_CKF"))
+            except:
+                print("Tracking Img Could Not save")
 
-
-            imgs_control.append(visualize_control(U=jnp.roll(U,1,axis=1),CONTROL_LIM=control_constraints,
+            try:
+                imgs_control.append(visualize_control(U=jnp.roll(U,1,axis=1),CONTROL_LIM=control_constraints,
                            fig=fig_control, axes=axes_control, step=step,
                            tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_control"))
-
+            except:
+                print("Control Img Could Not Save")
 
 
         # J = IM_fn(radar_state=radar_state,target_state=m0,J=J)
@@ -439,7 +443,7 @@ if __name__ == "__main__":
     parser.add_argument('--move_radars', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to allow the radars to move? --move_radars for yes --no-move_radars for no')
     parser.add_argument('--remove_tmp_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to remove tmp images? --remove_tmp_images for yes --no-remove_tmp_images for no')
     parser.add_argument('--save_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to saves images/gifs? --save_images for yes --no-save_images for no')
-    parser.add_argument('--fim_method', default="Standard_FIM",type=str, help='FIM Calculation [Standard_FIM,PCRLB]')
+    parser.add_argument('--fim_method', default="Standard_FIM",type=str, help='FIM Calculation [SFIM,PFIM]')
 
     # ==================== RADAR CONFIGURATION ======================== #
     parser.add_argument('--fc', default=1e8,type=float, help='Radar Signal Carrier Frequency (Hz)')

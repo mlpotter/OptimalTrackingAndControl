@@ -77,10 +77,10 @@ def visualize_tracking(target_state_true,target_state_ckf,target_states_true,
     M_target,dm = target_state_true.shape
     N_target,dn = radar_state.shape
 
-    thetas_ckf = jnp.arcsin(target_state_ckf[:, 2] / R2T)
+    thetas_ckf = jnp.arcsin(np.abs(target_state_ckf[:, 2]) / R2T)
     radius_projected_ckf = R2T * jnp.cos(thetas_ckf)
 
-    thetas_true = jnp.arcsin(target_state_true[:, 2] / R2T)
+    thetas_true = jnp.arcsin(np.abs(target_state_true[:, 2]) / R2T)
     radius_projected_true = R2T * jnp.cos(thetas_true)
 
     target_traj_segs =     LineCollection( np.swapaxes(target_states_true[:,:,:2],1,0), colors="g", alpha=0.5)

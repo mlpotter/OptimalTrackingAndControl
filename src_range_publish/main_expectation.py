@@ -160,10 +160,10 @@ def main(args):
 
     J = jnp.linalg.inv(ckf.P)
 
-    if args.fim_method == "PCRLB":
+    if args.fim_method == "PFIM":
         IM_fn = partial(Single_JU_FIM_Radar, A=A, Q=Q, C=C)
         IM_fn_update = partial(Single_JU_FIM_Radar, A=A_ckf, Q=Q_ckf, C=C)
-    elif args.fim_method == "Standard_FIM":
+    elif args.fim_method == "SFIM":
         IM_fn = partial(Single_FIM_Radar, C=C)
         IM_fn_update = IM_fn
     elif args.fim_method == "SFIM_bad":
@@ -384,25 +384,32 @@ def main(args):
             print("CKF Target Height :",ckf.x.reshape(M_target,dm)[:,2])
             print("Radius Projected: ",radius_projected)
 
-
-            imgs_main3d.append(visualize_tracking3D(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
+            try:
+                imgs_main3d.append(visualize_tracking3D(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
                            radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
                            cost_MPPI=cost_MPPI,
                            R2T=args.R2T, R2R=args.R2R,
                            fig=fig_main3d, ax=ax_main3d, step=step,
                            tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_3D"))
+            except:
+                print("Tracking 3D Img Could Not Save")
 
-            imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
+            try:
+                imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
                            radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
                            cost_MPPI=cost_MPPI, FIMs=FIMs[:(step//update_freq_control)],
                            R2T=args.R2T, R2R=args.R2R,C=C,
                            fig=fig_main, axes=axes_main, step=step,
                            tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_CKF"))
+            except:
+                print("Tracking 2D Img Could Not Save")
 
-
-            imgs_control.append(visualize_control(U=jnp.roll(U,1,axis=1),CONTROL_LIM=control_constraints,
+            try:
+                imgs_control.append(visualize_control(U=jnp.roll(U,1,axis=1),CONTROL_LIM=control_constraints,
                            fig=fig_control, axes=axes_control, step=step,
                            tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_control"))
+            except:
+                print("Control Img Could Not Save")
 
 
 

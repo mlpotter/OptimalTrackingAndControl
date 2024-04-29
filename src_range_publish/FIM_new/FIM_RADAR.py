@@ -62,7 +62,8 @@ def Single_JU_FIM_Radar(radar_state,target_state,J,A,Q,C):
     # jnp.einsum("ijk,ilm->ikm", d, d)
     coef = jnp.sqrt((4/(C*distances**6) + 8/(distances**4)))
     outer_vector = d * coef
-    outer_product = jnp.einsum("ijk,ijl->ijkl",outer_vector,outer_vector).sum(axis=1)#(outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
+    outer_product = (jnp.expand_dims(outer_vector, -1) @ jnp.expand_dims(outer_vector, -2)).sum(axis=1)
+    # outer_product = jnp.einsum("ijk,ijl->ijkl",outer_vector,outer_vector).sum(axis=1)#(outer_vector.transpose(1,2,0) @ outer_vector.transpose(1,0,2))
     J_standard = jax.scipy.linalg.block_diag(*[jax.scipy.linalg.block_diag(outer_product[m],jnp.zeros((dm-3,dm-3))) for m in range(M)])
 
     # D22 = J_standard + Qinv
@@ -72,7 +73,8 @@ def Single_JU_FIM_Radar(radar_state,target_state,J,A,Q,C):
 
     # J = jax.scipy.linalg.block_diag(*[outer_product[m] for m in range(M)])
 
-    J = jnp.linalg.inv(Q+A@jnp.linalg.inv(J)@A.T) + J_standard
+    # J = jnp.linalg.inv(Q+A@jnp.linalg.inv(J)@A.T) + J_standard
+    J = jnp.linalg.solve(Q+A@jnp.linalg.solve(J,jnp.eye(J.shape[0]))@A.T,jnp.eye(Q.shape[0])) + J_standard
 
     return J
 
