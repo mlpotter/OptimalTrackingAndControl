@@ -66,13 +66,13 @@ def main(args):
     #                 [-50.4,30.32,z_elevation,-20,-10,0], #,
     #                 # [10,10,z_elevation,10,10,0],
     #                 [20,20,z_elevation,5,-5,0]])
-    target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
-                    [15.4,15.32,z_elevation+10,15,20,0], #,
-                    [10,10,z_elevation-5,17,19,0],
-                    [20,20,z_elevation-15,6,8,0]])
-    # target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
-    #                 [-100.4,-30.32,z_elevation-15,20,-10,0], #,
-    #                 [30,30,z_elevation+20,-10,-10,0]])#,
+    # target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
+    #                 [15.4,15.32,z_elevation+10,15,20,0], #,
+    #                 [10,10,z_elevation-5,17,19,0],
+    #                 [20,20,z_elevation-15,6,8,0]])
+    target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
+                    [-100.4,-30.32,z_elevation-15,20,-10,0], #,
+                    [30,30,z_elevation+20,-10,-10,0]])#,
 
     ps,key = place_sensors_restricted(key,target_state,args.R2R,args.R2T,-400,400,args.N_radar)
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi)
