@@ -66,13 +66,13 @@ def main(args):
     #                 [-50.4,30.32,z_elevation,-20,-10,0], #,
     #                 # [10,10,z_elevation,10,10,0],
     #                 [20,20,z_elevation,5,-5,0]])
-    # target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
-    #                 [15.4,15.32,z_elevation+10,15,20,0], #,
-    #                 [10,10,z_elevation-5,17,19,0],
-    #                 [20,20,z_elevation-15,6,8,0]])
-    target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
-                    [-100.4,-30.32,z_elevation-15,20,-10,0], #,
-                    [30,30,z_elevation+20,-10,-10,0]])#,
+    target_state = jnp.array([[0.0, -0.0,z_elevation-5, 20., 10,0], #,#,
+                    [15.4,15.32,z_elevation+10,15,20,0], #,
+                    [10,10,z_elevation-5,17,19,0],
+                    [20,20,z_elevation-15,6,8,0]])
+    # target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
+    #                 [-100.4,-30.32,z_elevation-15,20,-10,0], #,
+    #                 [30,30,z_elevation+20,-10,-10,0]])#,
 
     ps,key = place_sensors_restricted(key,target_state,args.R2R,args.R2T,-400,400,args.N_radar)
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi)
@@ -208,11 +208,13 @@ def main(args):
     # generate the true target state
     target_states_true = jnp.array(generate_data_state(target_state,args.N_steps, M_target, dm,dt=args.dt_ckf,Q=Q))
 
+    # radar state history
+    radar_state_history = np.zeros((args.N_steps//update_freq_control,)+radar_state.shape)
 
     FIMs = np.zeros(args.N_steps//update_freq_control + 1)
 
 
-    fig_main,axes_main = plt.subplots(1,3,figsize=(15,5))
+    fig_main,axes_main = plt.subplots(1,2,figsize=(10,5))
     imgs_main =  []
 
     fig_control,axes_control = plt.subplots(1,2,figsize=(10,5))
@@ -368,7 +370,7 @@ def main(args):
             print(f"Step {step} - Saving Figure ")
 
             axes_main[0].plot(radar_state_init[:, 0], radar_state_init[:, 1], 'mo',
-                     label="Radar Init")
+                     label="Radar Initial Position")
 
             thetas = jnp.arcsin(target_state_true[:, 2] / args.R2T)
             radius_projected = args.R2T * jnp.cos(thetas)
@@ -377,15 +379,17 @@ def main(args):
             print("CKF Target Height :",ckf.x.reshape(M_target,dm)[:,2])
             print("Radius Projected: ",radius_projected)
 
+            radar_state_history[step // update_freq_control - 1] = radar_state
+
             try:
                 imgs_main.append(visualize_tracking(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
-                           radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
+                           radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,radar_state_history=radar_state_history[max(step // update_freq_control - args.tail_length,0):step // update_freq_control],
                            cost_MPPI=cost_MPPI, FIMs=FIMs[:(step//update_freq_control)],
                            R2T=args.R2T, R2R=args.R2R,C=C,
                            fig=fig_main, axes=axes_main, step=step,
                            tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_CKF"))
-            except:
-                print("Tracking Img Could Not save")
+            except Exception as error:
+                print("Tracking Img Could Not save: ",error)
 
             try:
                 imgs_control.append(visualize_control(U=jnp.roll(U,1,axis=1),CONTROL_LIM=control_constraints,
@@ -442,6 +446,7 @@ if __name__ == "__main__":
     parser.add_argument('--experiment_name', default="experiment",type=str, help='Name of folder to save temporary images to make GIFs')
     parser.add_argument('--move_radars', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to allow the radars to move? --move_radars for yes --no-move_radars for no')
     parser.add_argument('--remove_tmp_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to remove tmp images? --remove_tmp_images for yes --no-remove_tmp_images for no')
+    parser.add_argument('--tail_length',default=10,type=int,help="The length of the tail of the radar trajectories in plottings")
     parser.add_argument('--save_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to saves images/gifs? --save_images for yes --no-save_images for no')
     parser.add_argument('--fim_method', default="Standard_FIM",type=str, help='FIM Calculation [SFIM,PFIM]')
 
