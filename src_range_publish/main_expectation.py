@@ -1,3 +1,6 @@
+import os
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
 from jax import config
 config.update("jax_enable_x64", True)
 import numpy as np
@@ -26,10 +29,11 @@ import matplotlib.style as mplstyle
 import imageio
 
 from time import time
-import os
 import argparse
 from copy import deepcopy
 import shutil
+
+
 
 def main(args):
     mpl.rcParams['path.simplify_threshold'] = 1.0
@@ -217,7 +221,7 @@ def main(args):
     FIMs = np.zeros(args.N_steps//update_freq_control + 1)
 
 
-    fig_main,axes_main = plt.subplots(1,3,figsize=(15,5))
+    fig_main,axes_main = plt.subplots(1,2,figsize=(10,5))
     imgs_main =  []
 
     fig_control,axes_control = plt.subplots(1,2,figsize=(10,5))
@@ -377,7 +381,7 @@ def main(args):
             print(f"Step {step} - Saving Figure ")
 
             axes_main[0].plot(radar_state_init[:, 0], radar_state_init[:, 1], 'mo',
-                     label="Radar Init")
+                     label="Radar Init Position")
 
             thetas = jnp.arcsin(target_state_true[:, 2] / args.R2T)
             radius_projected = args.R2T * jnp.cos(thetas)
@@ -390,12 +394,13 @@ def main(args):
 
 
             try:
-                imgs_main3d.append(visualize_tracking3D(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
-                           radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
-                           cost_MPPI=cost_MPPI,
-                           R2T=args.R2T, R2R=args.R2R,
-                           fig=fig_main3d, ax=ax_main3d, step=step,
-                           tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_3D"))
+                pass
+                # imgs_main3d.append(visualize_tracking3D(target_state_true=target_state_true, target_state_ckf=ckf.x.reshape(M_target,dm),target_states_true=target_states_true.T.reshape(-1,M_target,dm)[:step],
+                #            radar_state=radar_state,radar_states_MPPI=radar_states_MPPI,
+                #            cost_MPPI=cost_MPPI,
+                #            R2T=args.R2T, R2R=args.R2R,
+                #            fig=fig_main3d, ax=ax_main3d, step=step,
+                #            tmp_photo_dir = args.tmp_img_savepath, filename = "MPPI_3D"))
             except:
                 print("Tracking 3D Img Could Not Save")
 
@@ -448,8 +453,8 @@ def main(args):
     if args.save_images:
         visualize_target_mse(target_state_mse,fig_mse,axes_mse,args.results_savepath,filename="target_mse")
 
-        images = [imageio.imread(file) for file in imgs_main3d]
-        imageio.mimsave(os.path.join(args.results_savepath, f'MPPI_MPC_AIS={args.AIS_method}_FIM={args.fim_method}3d.gif'), images, duration=0.1)
+        # images = [imageio.imread(file) for file in imgs_main3d]
+        # imageio.mimsave(os.path.join(args.results_savepath, f'MPPI_MPC_AIS={args.AIS_method}_FIM={args.fim_method}3d.gif'), images, duration=0.1)
 
         images = [imageio.imread(file) for file in imgs_main]
         imageio.mimsave(os.path.join(args.results_savepath, f'MPPI_MPC_AIS={args.AIS_method}_FIM={args.fim_method}.gif'), images, duration=0.1)
