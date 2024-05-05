@@ -75,6 +75,7 @@ for move_radar in move_radars:
                         f"--results_savepath={results_savepath} " \
                         f"--N_radar={n_radar} " \
                         f"--N_steps={n_steps} " \
+                        f"--no-save_images " \
                         f"--fim_method={fim_method} "
 
                     filepath = os.path.join(results_savepath,experiment_name+f"_{seed_i}")
@@ -93,7 +94,7 @@ for move_radar in move_radars:
                         print(f"GPU Device {deviceIDs[0]}")
                         print(f"tmux new-session -d {file_run} '{file_full}' '{deviceIDs[0]}'")
                         Popen(f"tmux new-session -d bash {file_run} '{file_full}' '{deviceIDs[0]}'",shell=True) #, shell=True,creationflags=CREATE_NEW_CONSOLE)
-                        time.sleep(30)
+                        time.sleep(7)
                     else:
                         print("All GPUs USED AT THIS MOMENT, WAIT UNTIL NEW RESOURCE AVAILABLE")
                         while len(deviceIDs) == 0:
@@ -102,4 +103,4 @@ for move_radar in move_radars:
                         print(f"GPU Device {deviceIDs[0]}")
                         print(f"tmux new-session -d {file_run} '{file_full}' '{deviceIDs[0]}'")
                         Popen(f"tmux new-session -d bash {file_run} '{file_full}' '{deviceIDs[0]}'",shell=True) #, shell=True,creationflags=CREATE_NEW_CONSOLE)
-                        time.sleep(30)
+                        time.sleep(7)
