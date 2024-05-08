@@ -5,7 +5,7 @@ import jax
 from jax.tree_util import Partial as partial
 def MPC_decorator(IM_fn,kinematic_model,dt,gamma,fim_method):
 
-    if fim_method == "PFIM_parallel":
+    if fim_method == "PFIM":
         @jit
         def MPC_obj(U, radar_state, target_state, J, A):
 

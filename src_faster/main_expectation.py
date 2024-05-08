@@ -398,7 +398,7 @@ def main(args):
         J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),J=J)
 
 
-        if args.fim_method == "PFIM_parallel":
+        if args.fim_method == "PFIM":
             FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J)[1].sum().item()
         else:
             FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J.sum(axis=0))[1].sum().item()
