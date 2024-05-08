@@ -12,7 +12,7 @@ import jax
 
 import jax.numpy as jnp
 
-from sklearn.covariance import OAS,ledoit_wolf
+from sklearn.covariance import OAS,ledoit_wolf,oas
 
 from FIM_new.FIM_RADAR import SFIM_range,FIM_Visualization,SFIM_parallel,PFIM_parallel
 from control.Sensor_Dynamics import UNI_SI_U_LIM,UNI_DI_U_LIM,unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator
