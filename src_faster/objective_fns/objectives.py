@@ -49,10 +49,10 @@ def MPC_decorator(IM_fn,kinematic_model,dt,gamma,fim_method):
             J = IM_fn(radar_state=jnp.reshape(radar_states,order="F",newshape=(-1,) + radar_states.shape[-2:]),
                       target_state=jnp.reshape(target_state,order="F",newshape=(-1,) + target_state.shape[-2:]),J=J)
 
-            J  = J.reshape(radar_states.shape[:2] + target_state.shape[:2] + (horizon,3,3),order="F").sum(axis=1).mean(axis=1)
+            J  = J.reshape(radar_states.shape[:2] + target_state.shape[:2] + (horizon,3,3),order="F").sum(axis=1)#
 
             # n_sigma_pts = target_state.shape[0]
-            logdets = jnp.linalg.slogdet(J)[1].sum(-2)
+            logdets = jnp.linalg.slogdet(J)[1].sum(-2).mean(axis=1)
             gammas = gamma**(jnp.arange(horizon))
             multi_FIM_obj = jnp.sum(gammas*logdets,axis=-1)/jnp.sum(gammas)
 
