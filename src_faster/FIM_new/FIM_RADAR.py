@@ -87,6 +87,33 @@ def SFIM_range(radar_state,target_state,sigmaR,J=None):
     return outer_product
 
 @jit
+def PFIM_range(radar_state,target_state,J,A,Q,sigmaR):
+    radar_state_ravel = jnp.reshape(radar_state, order="F", newshape=(-1,) + radar_state.shape[-1:])
+    target_state_ravel  = jnp.reshape(target_state, order="F", newshape=(-1,) + target_state.shape[-1:])
+
+    radar_ndims = radar_state.ndim
+    target_ndims = target_state.ndim
+
+    radar_positions = radar_state_ravel[...,:3]
+
+    target_positions = target_state_ravel[...,:3]
+
+    d = jnp.expand_dims(target_positions,0) - jnp.expand_dims(radar_positions,1)
+
+    distances = jnp.sqrt(jnp.sum(d ** 2, -1, keepdims=True))
+
+
+    outer_vector = jnp.concatenate((d,jnp.zeros(d.shape)),axis=-1) * 2/distances * 1/sigmaR
+
+    J_standard = (jnp.expand_dims(outer_vector, -1) @ jnp.expand_dims(outer_vector, -2))#.sum(axis=0)
+
+    J_standard = J_standard.reshape(radar_state.shape[:radar_state.ndim-1] + target_state.shape[:target_state.ndim-1] + (6, 6), order="F").sum(axis=radar_state.ndim-2)
+
+    J = jnp.linalg.inv(Q+A@jnp.linalg.inv(J)@A.T) + J_standard
+
+    return J
+
+@jit
 def PFIM_parallel(radar_state,target_state,J,A,Q,C):
     radar_state_ravel = jnp.reshape(radar_state, order="F", newshape=(-1,) + radar_state.shape[-1:])
     target_state_ravel  = jnp.reshape(target_state, order="F", newshape=(-1,) + target_state.shape[-1:])

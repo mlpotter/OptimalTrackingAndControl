@@ -17,8 +17,8 @@ seed=np.arange(0,500,2)
 frame_skip=[4]
 dt_ckf=[0.025]
 dt_control=[0.1]
-N_radar=[6]
-N_steps=[1000]
+N_radar=[4]
+N_steps=[600]
 move_radars = ["move_radars","no-move_radars"]
 remove_tmp_images = ["remove_tmp_images"]
 save_images = ["no-save_images"]
@@ -60,13 +60,13 @@ alpha4=[1]
 alpha5=[0]
 
 import GPUtil
-fim_methods = ["SFIM","SFIM_bad","PFIM"]
+fim_methods = ["SFIM","SFIM_bad","PFIM","PFIM_bad"]
 
 for fim_method in fim_methods:
     for move_radar in move_radars:
         for seed_i in seed:
             for n_radar in N_radar:
-                experiment_name = os.path.join(f"Experiment2_{fim_method}",f"N_radar={n_radar}-{move_radar}")
+                experiment_name = os.path.join(f"Experiment3_{fim_method}",f"N_radar={n_radar}-{move_radar}")
                 results_savepath = "results"
                 for n_steps in N_steps:
                     file = f"--{move_radar} " \
@@ -86,7 +86,7 @@ for fim_method in fim_methods:
                         print(filepath,"exists")
                         continue
 
-                    deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.75, maxMemory = 0.75, includeNan=False, excludeID=[3], excludeUUID=[])
+                    deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.8, maxMemory = 0.15, includeNan=False, excludeID=[3], excludeUUID=[])
                     print(deviceIDs)
                     file_full = f"python main_expectation.py {file}"
                     file_run = os.path.join(os.getcwd(),"execute_local.bash")
@@ -98,7 +98,7 @@ for fim_method in fim_methods:
                     else:
                         print("All GPUs USED AT THIS MOMENT, WAIT UNTIL NEW RESOURCE AVAILABLE")
                         while len(deviceIDs) == 0:
-                            deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.75, maxMemory = 0.75, includeNan=False, excludeID=[3], excludeUUID=[])
+                            deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.8, maxMemory = 0.15, includeNan=False, excludeID=[3], excludeUUID=[])
                             time.sleep(5)
                         print(f"GPU Device {deviceIDs[0]}")
                         print(f"tmux new-session -d {file_run} '{file_full}' '{deviceIDs[0]}'")

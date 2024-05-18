@@ -11,3 +11,4 @@
 *results
 *.ipynb_checkpoints/
 *.vscode
+*.idea

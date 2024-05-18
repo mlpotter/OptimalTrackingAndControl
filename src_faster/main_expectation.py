@@ -14,7 +14,7 @@ import jax.numpy as jnp
 
 from sklearn.covariance import OAS,ledoit_wolf,oas
 
-from FIM_new.FIM_RADAR import SFIM_range,FIM_Visualization,SFIM_parallel,PFIM_parallel
+from FIM_new.FIM_RADAR import SFIM_range,FIM_Visualization,SFIM_parallel,PFIM_parallel,PFIM_range
 from control.Sensor_Dynamics import UNI_SI_U_LIM,UNI_DI_U_LIM,unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator
 from utils import visualize_tracking,visualize_control,visualize_target_mse,place_sensors_restricted,visualize_tracking3D
 from control.MPPI import MPPI_scores_wrapper,weighting,MPPI_wrapper #,MPPI_adapt_distribution
@@ -82,6 +82,10 @@ def main(args):
     # target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
     #                 [-100.4,-30.32,z_elevation-15,20,-10,0], #,
     #                 [30,30,z_elevation+20,-10,-10,0]])#,
+    target_state = jnp.array([[0.0, 15,z_elevation+10, 15., 15,0], #,#,
+                    [40.4,15,z_elevation+10,15,15,0], #,
+                    [-30,-15,z_elevation-15,-10,-10,0],
+                    [20,-15,z_elevation-15,-10,-10,0]])
 
     ps,key = place_sensors_restricted(key,target_state,args.R2R,args.R2T,-400,400,args.N_radar)
     chis = jax.random.uniform(key,shape=(ps.shape[0],1),minval=-jnp.pi,maxval=jnp.pi)
@@ -177,6 +181,9 @@ def main(args):
     elif args.fim_method == "PFIM":
         IM_fn = partial(PFIM_parallel, A=A_single, Q=Q_single, C=C)
         IM_fn_update = partial(PFIM_parallel, A=A_single_ckf, Q=Q_single_ckf, C=C)
+    elif args.fim_method == "PFIM_bad":
+        IM_fn = partial(PFIM_range, A=A_single, Q=Q_single, sigmaR=sigmaR)
+        IM_fn_update = partial(PFIM_range, A=A_single_ckf, Q=Q_single_ckf, sigmaR=sigmaR)
     else:
         raise Exception("Not a valid FIM method")
 
@@ -339,6 +346,8 @@ def main(args):
 
                         oracle_start = time()
                         oas_cov,shrinkage = ledoit_wolf(X=E[weights != 0],assume_centered=True)
+                        # oas_cov,shrinkage = oas(X=E[weights != 0],assume_centered=True)
+
                         oracle_end = time()
                         # print("Oracle Time: ", oracle_end - oracle_start)
                         cov_prime = jnp.array(oas_cov)
@@ -398,7 +407,7 @@ def main(args):
         J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),J=J)
 
 
-        if args.fim_method == "PFIM":
+        if "PFIM" in args.fim_method:
             FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J)[1].sum().item()
         else:
             FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J.sum(axis=0))[1].sum().item()
@@ -475,10 +484,9 @@ def main(args):
         target_state_mse[step-1] = jnp.sqrt(jnp.sum(ckf.x - target_state_true.reshape(-1,1))**2)
 
     np.savetxt(os.path.join(args.results_savepath,f'rmse_{args.seed}.csv'), np.c_[np.arange(1,args.N_steps+1),target_state_mse], delimiter=',',header="k,rmse",comments='')
+    visualize_target_mse(target_state_mse, fig_mse, axes_mse, args.results_savepath, filename="target_mse")
 
     if args.save_images:
-        visualize_target_mse(target_state_mse,fig_mse,axes_mse,args.results_savepath,filename="target_mse")
-
         # images = [imageio.imread(file) for file in imgs_main3d]
         # imageio.mimsave(os.path.join(args.results_savepath, f'MPPI_MPC_AIS={args.AIS_method}_FIM={args.fim_method}3d.gif'), images, duration=0.1)
 
@@ -501,7 +509,7 @@ if __name__ == "__main__":
     parser.add_argument('--dt_ckf', default=0.025,type=float, help='Frequency at which the radar receives measurements and updated Cubature Kalman Filter')
     parser.add_argument('--dt_control', default=0.1,type=float,help='Frequency at which the control optimization problem occurs with MPPI')
     parser.add_argument('--N_radar',default=6,type=int,help="The number of radars in the experiment")
-    parser.add_argument("--N_steps",default=1000,type=int,help="The number of steps in the experiment. Total real time duration of experiment is N_steps x dt_ckf")
+    parser.add_argument("--N_steps",default=600,type=int,help="The number of steps in the experiment. Total real time duration of experiment is N_steps x dt_ckf")
     parser.add_argument('--results_savepath', default="results",type=str, help='Folder to save bigger results folder')
     parser.add_argument('--experiment_name', default="experiment",type=str, help='Name of folder to save temporary images to make GIFs')
     parser.add_argument('--move_radars', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to allow the radars to move? --move_radars for yes --no-move_radars for no')
