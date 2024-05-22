@@ -28,7 +28,13 @@ from scipy.linalg import inv, cholesky
 from filterpy.stats import logpdf
 from filterpy.common import pretty_str, outer_product_sum
 
-
+from jax import config
+config.update("jax_enable_x64", True)
+import jax
+import numba
+#
+#
+# @numba.jit
 def spherical_radial_sigmas(x, P):
     r""" Creates cubature points for the the specified state and covariance
     according to [1].
@@ -60,6 +66,39 @@ def spherical_radial_sigmas(x, P):
 
     return sigmas
 
+#
+# # @jax.jit
+# def spherical_radial_sigmas(x, P):
+#     r""" Creates cubature points for the the specified state and covariance
+#     according to [1].
+#
+#     Parameters
+#     ----------
+#
+#     x: ndarray (column vector)
+#         examples:  np.array([[1.], [2.]])
+#
+#     P : scalar, or np.array
+#        Covariance of the filter.
+#
+#     References
+#     ----------
+#
+#     .. [1] Arasaratnam, I, Haykin, S. "Cubature Kalman Filters,"
+#        IEEE Transactions on Automatic Control, 2009, pp 1254-1269, vol 54, No 6
+#     """
+#
+#     n, _ = P.shape
+#     x = x.reshape(1,-1)
+#
+#     # sigmas = np.empty((2*n, n))
+#     U = jax.scipy.linalg.cholesky(P) * jax.numpy.sqrt(n)
+#     sigmas = jax.numpy.concatenate((x+U,x-U),axis=0)
+#     # for k in range(n):
+#     #     sigmas[k] = x + U[k]
+#     #     sigmas[n+k] = x - U[k]
+#
+#     return sigmas
 
 def ckf_transform(Xs, Q):
     """

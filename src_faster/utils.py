@@ -47,7 +47,7 @@ def visualize_target_mse(MSE,fig,axes,tmp_photo_dir,filename="visualize"):
 
     axes.set_title("$RMSE$")
     axes.set_xlabel("Time Step")
-    axes.set_ylabel("$\sqrt{|| x_{true} - x_{ckf} ||}$")
+    axes.set_ylabel("RSSE$(\chi_{true},\chi_{ckf})$")
 
     fig.tight_layout()
     fig.savefig(file_savepth)

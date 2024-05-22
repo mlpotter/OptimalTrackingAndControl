@@ -109,7 +109,7 @@ def main(args):
     # coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi)** 3 / (R ** 4)
     C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * args.fc**2) * 1/K
 
-    sigmaR = 0.5
+    sigmaR = 0.05
 
     print("Noise Power: ",sigmaW**2)
     print("Power Return (RCS): ",Pr)
@@ -239,6 +239,8 @@ def main(args):
 
     FIMs = np.zeros(args.N_steps//update_freq_control + 1)
 
+    mppi_times = np.zeros(args.N_steps//update_freq_control + 1)
+
 
     fig_main,axes_main = plt.subplots(1,2,figsize=(10,5))
     imgs_main =  []
@@ -271,7 +273,13 @@ def main(args):
 
         if args.move_radars:
             if (step % update_freq_control == 0):
+                print(f"\n Step {step} MPPI CONTROL ")
+
+                U_prime = deepcopy(U)
+                cov_prime = deepcopy(cov)
+
                 # the cubature kalman filter points propogated over horizon. Horizon x # Sigma Points (2*dm) x (Number of targets * dim of target)
+                ckf.Q = Q
                 target_states_ckf = ckf.predict_propogate(ckf.x, ckf.P, args.horizon, dt=args.dt_control, fx_args=(M_target,))
                 # target_states_ckf = np.swapaxes(target_states_ckf.mean(axis=1).reshape(args.horizon, M_target, dm), 1, 0)
 
@@ -280,21 +288,16 @@ def main(args):
                 # move_axis_end = time()
                 # print("MOVE AXIS Sample: ",move_axis_end-move_axis_start)
 
-                U_prime = deepcopy(U)
-                cov_prime = deepcopy(cov)
-
                 mppi_start_time = time()
-
-                print(f"\n Step {step} MPPI CONTROL ")
 
 
                 for mppi_iter in range(args.MPPI_iterations):
-                    start = time()
+                    # start = time()
                     key, subkey = jax.random.split(key)
 
-                    mppi_start = time()
+                    # mppi_start = time()
 
-                    mppi_sample_start = time()
+                    # mppi_sample_start = time()
 
                     try:
                         E = jax.random.multivariate_normal(key, mean=jnp.zeros_like(U).ravel(), cov=cov_prime, shape=(args.num_traj,))#,method="svd")
@@ -303,7 +306,7 @@ def main(args):
 
                     # simulate the model with the trajectory noise samples
                     V = U_prime + E.reshape(args.num_traj,args.N_radar,args.horizon,2)
-                    mppi_sample_end = time()
+                    # mppi_sample_end = time()
                     # print("MPPI Sample TIME: ",mppi_sample_end-mppi_sample_end)
 
 
@@ -312,17 +315,17 @@ def main(args):
 
 
                     # GET MPC OBJECTIVE
-                    mppi_score_start = time()
+                    # mppi_score_start = time()
                     # Score all the rollouts
                     cost_trajectory = MPPI_scores(V,radar_state, target_states_ckf,
                                               J,A)
 
-                    mppi_score_end = time()
+                    # mppi_score_end = time()
                     # print(cost_trajectory)
                     # print("MPPI SCORE TIME: ",mppi_score_end-mppi_score_start)
 
 
-                    mppi_score_other_start = time()
+                    # mppi_score_other_start = time()
                     cost_collision_r2t = collision_penalty(radar_states_MPPI[...,1:args.horizon+1,:], target_states_ckf,
                                            args.R2T)
 
@@ -331,7 +334,7 @@ def main(args):
                     cost_collision_r2r = self_collision_penalty_vmap(radar_states_MPPI[...,1:args.horizon+1,:], args.R2R)
                     cost_collision_r2r = jnp.sum((cost_collision_r2r * args.gamma**(jnp.arange(args.horizon))) / jnp.sum(args.gamma**jnp.arange(args.horizon)),axis=-1)
 
-                    mppi_score_other_end = time()
+                    # mppi_score_other_end = time()
                     # print("MPPI OTHER SCORE TIME: ",mppi_score_other_end-mppi_score_other_start)
 
                     cost_MPPI = args.alpha1*cost_trajectory + args.alpha2*cost_collision_r2t + args.alpha3 * cost_collision_r2r * args.temperature
@@ -346,30 +349,30 @@ def main(args):
 
                     if (mppi_iter < (args.MPPI_iterations-1)): #and (jnp.sum(cost_MPPI*weights) < best_cost):
 
-                        best_cost = jnp.sum(cost_MPPI*weights)
+                        # best_cost = jnp.sum(cost_MPPI*weights)
 
-                        U_copy = deepcopy(U_prime)
+                        # U_copy = deepcopy(U_prime)
                         U_prime = U_prime + jnp.sum(weights.reshape(args.num_traj,1,1,1) * E.reshape(args.num_traj,args.N_radar,args.horizon,2),axis=0)
 
-                        oracle_start = time()
+                        # oracle_start = time()
                         oas_cov,shrinkage = ledoit_wolf(X=E[weights != 0],assume_centered=True)
                         # oas_cov,shrinkage = oas(X=E[weights != 0],assume_centered=True)
 
-                        oracle_end = time()
+                        # oracle_end = time()
                         # print("Oracle Time: ", oracle_end - oracle_start)
                         cov_prime = jnp.array(oas_cov)
                         if mppi_iter == 0:
                             # print("Oracle Approx Shrinkage: ",np.round(shrinkage,5))
                             pass
-                mppi_round_time_end = time()
+                # mppi_round_time_end = time()
 
                 if jnp.isnan(cost_MPPI).any():
                     print("BREAK!")
                     break
 
-                mppi_weight_start = time()
+                # mppi_weight_start = time()
                 weights = weight_fn(cost_MPPI)
-                mppi_weight_end = time()
+                # mppi_weight_end = time()
                 # print("Weight time: ",mppi_weight_end-mppi_weight_start)
 
                 mean_shift = (U_prime - U)
@@ -383,14 +386,16 @@ def main(args):
                 # jnp.repeat(U,update_freq_control,axis=1)
 
                 # radar_states = kinematic_model(U ,radar_state, dt_control)
+                mppi_end_time = time()
 
                 # generate radar states at measurement frequency
-                mppi_kinematic_start = time()
+                # mppi_kinematic_start = time()
+
                 radar_states = kinematic_model(np.repeat(U, update_freq_control, axis=1)[:, :update_freq_control, :],
                                                radar_state, args.dt_ckf)
 
-                weights = weight_fn(cost_MPPI)
-                mppi_kinematic_end = time()
+                # weights = weight_fn(cost_MPPI)
+                # mppi_kinematic_end = time()
                 # print("Kinematic time: ",mppi_kinematic_end-mppi_kinematic_start)
 
                 # U += jnp.clip(jnp.sum(weights.reshape(args.num_traj,1,1,1) *  E.reshape(args.num_traj,N,horizon,2),axis=0),U_lower,U_upper)
@@ -398,10 +403,8 @@ def main(args):
                 # radar_state = radar_states[:,1]
                 U = jnp.roll(U, -1, axis=1)
 
-                mppi_end_time = time()
                 print(f"MPPI Round Time {step} ",np.round(mppi_end_time-mppi_start_time,3))
-
-
+                mppi_times[step // update_freq_control - 1] = mppi_end_time-mppi_start_time
 
         if step >= update_freq_control:
             # get the radar state
@@ -481,6 +484,9 @@ def main(args):
         R = np.diag(C * (measurement_next_expected/2) ** 4)
         ckf.R = R
 
+        # reset the ckf to measurement frequency
+        ckf.Q = Q_ckf
+
         range_actual = measurement_model(target_states_true[:, step-1], radar_state[:, :3], M_target, dm, args.N_radar)
 
         measurement_actual = range_actual + np.random.randn() * (C * (range_actual.ravel() / 2) ** 4)
@@ -490,8 +496,12 @@ def main(args):
 
         target_state_mse[step-1] = jnp.sqrt(jnp.sum(ckf.x - target_state_true.reshape(-1,1))**2)
 
+    print("Saving Sum of Squared Errors")
     np.savetxt(os.path.join(args.results_savepath,f'rmse_{args.seed}.csv'), np.c_[np.arange(1,args.N_steps+1),target_state_mse], delimiter=',',header="k,rmse",comments='')
     visualize_target_mse(target_state_mse, fig_mse, axes_mse, args.results_savepath, filename="target_mse")
+    control_hz = 1/np.mean(mppi_times[1:])
+    print(f"MPPI Controller running at {np.round(control_hz,3)} Hz")
+    np.savetxt(os.path.join(args.results_savepath,f'controlhz_{args.seed}.csv'), mppi_times[1:], delimiter=',',header="seconds",comments='')
 
     if args.save_images:
         # images = [imageio.imread(file) for file in imgs_main3d]
