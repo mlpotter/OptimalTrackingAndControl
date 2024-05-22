@@ -443,7 +443,7 @@ def main(args):
 
         range_actual = measurement_model(target_states_true[:, step-1], radar_state[:, :3], M_target, dm, args.N_radar)
 
-        measurement_actual = range_actual + np.random.randn() * (C * (range_actual.ravel() / 2) ** 4)
+        measurement_actual = range_actual + np.random.randn() * np.sqrt(C * (range_actual.ravel() / 2) ** 4)
 
         ckf.update(np.reshape(measurement_actual,(-1,1)), hx_args=(radar_state[:,:3], M_target, dm,args.N_radar))
         print(f"Step {step} - Tracking ")

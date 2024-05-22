@@ -40,8 +40,8 @@ ang_acc_std=[45*np.pi/180]
 horizon=[15]
 acc_init=[0]
 ang_acc_init=[0 * np.pi/180]
-num_traj=[250] # 250
-MPPI_iterations=[25] # 25
+num_traj=[200] # 250
+MPPI_iterations=[5] # 25
 
 # ==================== AIS  CONFIGURATION ======================== #
 temperature=[0.1]
@@ -69,7 +69,7 @@ for fim_method in fim_methods:
             for n_radar in N_radar:
                 for n_traj in num_traj:
                     for mppi_iter in MPPI_iterations:
-                        experiment_name = os.path.join(f"Experiment10_{fim_method}",f"N_radar={n_radar}-{move_radar}")
+                        experiment_name = os.path.join(f"Experiment12_{fim_method}",f"N_radar={n_radar}-{move_radar}")
                         results_savepath = "results"
                         for n_steps in N_steps:
                             file = f"--{move_radar} " \

@@ -109,7 +109,7 @@ def main(args):
     # coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi)** 3 / (R ** 4)
     C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * args.fc**2) * 1/K
 
-    sigmaR = 0.05
+    sigmaR = C*(args.R2T**4)#0.05
 
     print("Noise Power: ",sigmaW**2)
     print("Power Return (RCS): ",Pr)
@@ -180,6 +180,7 @@ def main(args):
     J = jnp.linalg.inv(jnp.tile(np.eye(dm) * 50,(M_target,1,1)))
 
     if args.fim_method == "SFIM_bad":
+        print("SigmaR: ", sigmaR)
         IM_fn = partial(SFIM_range, sigmaR=sigmaR)
         IM_fn_update = IM_fn
     elif args.fim_method == "SFIM":
@@ -189,6 +190,7 @@ def main(args):
         IM_fn = partial(PFIM_parallel, A=A_single, Q=Q_single, C=C)
         IM_fn_update = partial(PFIM_parallel, A=A_single_ckf, Q=Q_single_ckf, C=C)
     elif args.fim_method == "PFIM_bad":
+        print("SigmaR: ", sigmaR)
         IM_fn = partial(PFIM_range, A=A_single, Q=Q_single, sigmaR=sigmaR)
         IM_fn_update = partial(PFIM_range, A=A_single_ckf, Q=Q_single_ckf, sigmaR=sigmaR)
     else:
@@ -489,7 +491,7 @@ def main(args):
 
         range_actual = measurement_model(target_states_true[:, step-1], radar_state[:, :3], M_target, dm, args.N_radar)
 
-        measurement_actual = range_actual + np.random.randn() * (C * (range_actual.ravel() / 2) ** 4)
+        measurement_actual = range_actual + np.random.randn() * np.sqrt(C * (range_actual.ravel() / 2) ** 4)
 
         ckf.update(np.reshape(measurement_actual,(-1,1)), hx_args=(radar_state[:,:3], M_target, dm,args.N_radar))
         print(f"Step {step} - Tracking ")
