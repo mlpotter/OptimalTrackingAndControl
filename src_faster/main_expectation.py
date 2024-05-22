@@ -80,7 +80,8 @@ def main(args):
                     [15.4,15.32,z_elevation+10,15,20,0], #,
                     [10,10,z_elevation-5,17,19,0],
                     [20,20,z_elevation-15,6,8,0]])
-    elif args.N_radar == 6:
+
+    elif args.N_radar == 6 or args.N_radar==5:
         target_state = jnp.array([[0.0, -0.0,z_elevation+10, 25., 20,0], #,#,
                         [-100.4,-30.32,z_elevation-15,20,-10,0], #,
                         [30,30,z_elevation+20,-10,-10,0]])#,
@@ -483,7 +484,13 @@ def main(args):
         # CKF ! ! ! !
         measurement_next_expected = measurement_model(ckf.x.ravel(), radar_state[:,:3], M_target, dm,args.N_radar)
 
-        R = np.diag(C * (measurement_next_expected/2) ** 4)
+        # R = np.diag(C * (measurement_next_expected/2) ** 4)
+
+        if "bad" in args.fim_method:
+            R = sigmaR**2 * np.diag(np.ones_like(measurement_next_expected))
+        else:
+            R = np.diag(C * (measurement_next_expected / 2) ** 4)
+
         ckf.R = R
 
         # reset the ckf to measurement frequency

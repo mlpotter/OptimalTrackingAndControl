@@ -17,7 +17,7 @@ seed=np.arange(0,500,2)
 frame_skip=[4]
 dt_ckf=[0.025]
 dt_control=[0.1]
-N_radar=[6]
+N_radar=[5]
 N_steps=[600]
 move_radars = ["move_radars","no-move_radars"]
 remove_tmp_images = ["remove_tmp_images"]
@@ -29,7 +29,7 @@ Gt=[200]
 Gr=[200]
 rcs=[1]
 L=[1]
-R=[500]
+R=[250]
 Pt=[1000]
 SNR=[-20]
 
@@ -81,7 +81,8 @@ for fim_method in fim_methods:
                                 f"--no-save_images " \
                                 f"--MPPI_iterations={mppi_iter} " \
                                 f"--num_traj={n_traj} " \
-                                f"--fim_method={fim_method} "
+                                f"--fim_method={fim_method} " \
+                                f"--R={R[0]} "
 
                             filepath = os.path.join(results_savepath,experiment_name+f"_{seed_i}")
                             # print(filepath)
