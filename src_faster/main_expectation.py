@@ -109,7 +109,7 @@ def main(args):
     # coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi)** 3 / (R ** 4)
     C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * args.fc**2) * 1/K
 
-    sigmaR = C*(args.R2T**4)#0.05
+    sigmaR = np.sqrt(C*(args.R2T**4))#0.05
 
     print("Noise Power: ",sigmaW**2)
     print("Power Return (RCS): ",Pr)
@@ -549,11 +549,11 @@ if __name__ == "__main__":
 
 
     # ==================== MPPI CONFIGURATION ======================== #
-    parser.add_argument('--acc_std', default=25,type=float, help='Radar Signal Carrier Frequency (Hz)')
-    parser.add_argument('--ang_acc_std', default=45*jnp.pi/180,type=float, help='Radar Transmit Gain')
-    parser.add_argument('--horizon', default=15,type=int, help='Radar Receive Gain')
-    parser.add_argument('--acc_init', default=0,type=float, help='Radar Cross Section in m^2')
-    parser.add_argument('--ang_acc_init', default= 0 * jnp.pi/180,type=float, help='Radar Loss')
+    parser.add_argument('--acc_std', default=25,type=float, help='MPPI init heading acc std')
+    parser.add_argument('--ang_acc_std', default=45*jnp.pi/180,type=float, help='MPPI init angular acc std')
+    parser.add_argument('--horizon', default=15,type=int, help='MPC Horizon')
+    parser.add_argument('--acc_init', default=0,type=float, help='Initial Heading Acceleration')
+    parser.add_argument('--ang_acc_init', default= 0 * jnp.pi/180,type=float, help='Initial Angular Acceleration')
     parser.add_argument('--num_traj', default=250,type=int, help='Number of MPPI control sequences samples to generate')
     parser.add_argument('--MPPI_iterations', default=25,type=int, help='Number of MPPI sub iterations (proposal adaptations)')
 
