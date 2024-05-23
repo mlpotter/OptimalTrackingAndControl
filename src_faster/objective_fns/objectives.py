@@ -18,12 +18,13 @@ def MPC_decorator(IM_fn,kinematic_model,dt,gamma,fim_method):
 
             # iterate through time step
             Js = [None]*horizon
+            # number of traj x number of sigma pts x number of targets x dm x dm
             J = jnp.tile(J,(radar_states.shape[0],target_state.shape[0],1,1,1))
-            for t in range(1,horizon+1):
+            for t in range(horizon):
 
                 J = IM_fn(radar_state=radar_states[...,t,:],
-                          target_state=target_state[...,t-1,:], J=J)
-                Js[t-1] = J.mean(axis=1)
+                          target_state=target_state[...,t,:], J=J)
+                Js[t] = J.mean(axis=1)
 
                 J = J.reshape(radar_states.shape[:1] + target_state.shape[:2] + (6, 6), order="F").mean(axis=1)
                 J = jnp.tile(jnp.expand_dims(J,1),(1,target_state.shape[0],1,1,1))
@@ -39,19 +40,36 @@ def MPC_decorator(IM_fn,kinematic_model,dt,gamma,fim_method):
     else:
         @jit
         def MPC_obj(U,radar_state,target_state,J,A):
+            """
+            Parameters
+            ----------
+            U: MPPI control inputs. Dim: number of traj x number of radars x horizon x 2
+            radar_state: radar state at time k. Dim: number of radar x dn
+            target_state: CKF sigma pts of target state. Dim: # sigma pts x number of targets x horizon x dm
+            J: The block elements of the fisher information matrix. Dim: number of radar x number of target x dm x dm
+            A: Transition matrix of state space model of target.
 
+            Returns
+            -------
+            """
             # horizon = U.shape[1]
             horizon = target_state.shape[-2]
 
+            # number of traj x number of radar x horizon+1 x dn
             radar_states = kinematic_model(U,jnp.tile(radar_state,(U.shape[0],1,1)),dt)
 
             radar_states = radar_states[...,1:,:3]
+            # (number of traj * number of radar) x (number of sigma pts * number of target) x horizon x dm x dm
             J = IM_fn(radar_state=jnp.reshape(radar_states,order="F",newshape=(-1,) + radar_states.shape[-2:]),
                       target_state=jnp.reshape(target_state,order="F",newshape=(-1,) + target_state.shape[-2:]),J=J)
 
+            # number of traj x number of sigma pts x number of target  x horizon x dm x dm
+            # sum the FIM matrices for a single target associated with all radars
             J  = J.reshape(radar_states.shape[:2] + target_state.shape[:2] + (horizon,3,3),order="F").sum(axis=1)#
 
             # n_sigma_pts = target_state.shape[0]
+            # sum the logdets of the block elements of each target FIM. Then take the average over the CKF sigma points.
+            # number of traj x horizon
             logdets = jnp.linalg.slogdet(J)[1].sum(-2).mean(axis=1)
             gammas = gamma**(jnp.arange(horizon))
             multi_FIM_obj = jnp.sum(gammas*logdets,axis=-1)/jnp.sum(gammas)

@@ -178,6 +178,7 @@ def main(args):
 
     # ======================== Objective Settings ===============================#
 
+    # number of radar x number of target x dm x dm
     J = jnp.linalg.inv(jnp.tile(np.eye(dm) * 50,(M_target,1,1)))
 
     if args.fim_method == "SFIM_bad":
@@ -220,6 +221,7 @@ def main(args):
 
     U1 = jnp.ones((args.N_radar,args.horizon,1)) * args.acc_init
     U2 = jnp.ones((args.N_radar,args.horizon,1)) * args.ang_acc_init
+    # number of radars x horizon x 2
     U =jnp.concatenate((U1,U2),axis=-1)
 
     if not args.move_radars:
@@ -278,15 +280,17 @@ def main(args):
             if (step % update_freq_control == 0):
                 print(f"\n Step {step} MPPI CONTROL ")
 
+                # number of radars x horizon x 2
                 U_prime = deepcopy(U)
                 cov_prime = deepcopy(cov)
 
-                # the cubature kalman filter points propogated over horizon. Horizon x # Sigma Points (2*dm) x (Number of targets * dim of target)
+                # the cubature kalman filter points propogated over horizon. Horizon x # Sigma Points x (Number of targets * dim of target)
                 ckf.Q = Q
                 target_states_ckf = ckf.predict_propogate(ckf.x, ckf.P, args.horizon, dt=args.dt_control, fx_args=(M_target,))
                 # target_states_ckf = np.swapaxes(target_states_ckf.mean(axis=1).reshape(args.horizon, M_target, dm), 1, 0)
 
                 # move_axis_start = time()
+                # # Sigma Points x Number of targets x horizon x dm
                 target_states_ckf = np.moveaxis(target_states_ckf.reshape(args.horizon,dm*M_target*2,M_target,dm),source=0,destination=-2)
                 # move_axis_end = time()
                 # print("MOVE AXIS Sample: ",move_axis_end-move_axis_start)
@@ -308,11 +312,13 @@ def main(args):
                         E = jax.random.multivariate_normal(key, mean=jnp.zeros_like(U).ravel(), cov=cov_prime, shape=(args.num_traj,),method="svd")
 
                     # simulate the model with the trajectory noise samples
+                    # number of traj x number of radars x horizon x 2
                     V = U_prime + E.reshape(args.num_traj,args.N_radar,args.horizon,2)
                     # mppi_sample_end = time()
                     # print("MPPI Sample TIME: ",mppi_sample_end-mppi_sample_end)
 
-
+                    # number of radars x horizon+1 x dn
+                    # number of traj x number of radars x horizon+1 x dn
                     radar_states,radar_states_MPPI = MPPI(U_nominal=U_prime,
                                                                        U_MPPI=V,radar_state=radar_state)
 
@@ -355,6 +361,7 @@ def main(args):
                         # best_cost = jnp.sum(cost_MPPI*weights)
 
                         # U_copy = deepcopy(U_prime)
+                        # number of radars x horizon x 2
                         U_prime = U_prime + jnp.sum(weights.reshape(args.num_traj,1,1,1) * E.reshape(args.num_traj,args.N_radar,args.horizon,2),axis=0)
 
                         # oracle_start = time()
@@ -394,6 +401,7 @@ def main(args):
                 # generate radar states at measurement frequency
                 # mppi_kinematic_start = time()
 
+                # number of radar x steps of update freq control x dn
                 radar_states = kinematic_model(np.repeat(U, update_freq_control, axis=1)[:, :update_freq_control, :],
                                                radar_state, args.dt_ckf)
 
@@ -417,6 +425,8 @@ def main(args):
             else:
                 radar_state = radar_state
 
+        # number of radars x number of targets x dm x dm if SFIM
+        # number of targets x dm x dm if PFIM
         J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),J=J)
 
 
@@ -482,6 +492,7 @@ def main(args):
         # J = IM_fn(radar_state=radar_state,target_state=m0,J=J)
 
         # CKF ! ! ! !
+        # number of radars x number of targets
         measurement_next_expected = measurement_model(ckf.x.ravel(), radar_state[:,:3], M_target, dm,args.N_radar)
 
         # R = np.diag(C * (measurement_next_expected/2) ** 4)
@@ -496,6 +507,7 @@ def main(args):
         # reset the ckf to measurement frequency
         ckf.Q = Q_ckf
 
+        # number of radars x number of targets
         range_actual = measurement_model(target_states_true[:, step-1], radar_state[:, :3], M_target, dm, args.N_radar)
 
         measurement_actual = range_actual + np.random.randn() * np.sqrt(C * (range_actual.ravel() / 2) ** 4)
