@@ -10,7 +10,7 @@ import time
 
 os.makedirs("logs",exist_ok=True)
 
-blocking=False
+blocking=True
 
 # =========================== Experiment Choice ================== #
 seed=np.arange(0,500,2)
@@ -55,7 +55,7 @@ R2T=[125]
 R2R=[10]
 alpha1=[1]
 alpha2=[1000]
-alpha3=[60]
+alpha3=[500]
 alpha4=[1]
 alpha5=[0]
 

@@ -432,10 +432,7 @@ def main(args):
         else:
             J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),J=J)
 
-        if "PFIM" in args.fim_method:
-            FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J)[1].sum().item()
-        else:
-            FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J)[1].sum().item()
+        FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J)[1].sum().item()
 
         if ((step % args.frame_skip) == 0) and ((step % update_freq_control) == 0) and args.save_images:
             print(f"Step {step} - Saving Figure ")
@@ -590,7 +587,7 @@ if __name__ == "__main__":
     parser.add_argument('--R2R', default=10,type=float, help='Radius from Radar to  Radar to maintain [m]')
     parser.add_argument('--alpha1', default=1,type=float, help='Cost weighting for FIM')
     parser.add_argument('--alpha2', default=1000,type=float, help='Cost weighting for maintaining distanace between Radar to Target')
-    parser.add_argument('--alpha3', default=60,type=float, help='Cost weighting for maintaining distance between Radar to Radar')
+    parser.add_argument('--alpha3', default=500,type=float, help='Cost weighting for maintaining distance between Radar to Radar')
     parser.add_argument('--alpha4', default=1,type=float, help='Cost weighting for smooth controls (between 0 to 1, where closer to 1 means no smoothness')
     parser.add_argument('--alpha5', default=0,type=float, help='Cost weighting to maintain minimum absolute speed')
 
