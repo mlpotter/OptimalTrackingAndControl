@@ -427,13 +427,15 @@ def main(args):
 
         # number of radars x number of targets x dm x dm if SFIM
         # number of targets x dm x dm if PFIM
-        J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),J=J)
-
+        if "PFIM" in args.fim_method:
+            J = IM_fn_update(radar_state=radar_state, target_state=ckf.sigmas_f.reshape(-1,M_target,dm),J=J)
+        else:
+            J = IM_fn_update(radar_state=radar_state, target_state=ckf.x.reshape(M_target,dm),J=J)
 
         if "PFIM" in args.fim_method:
             FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J)[1].sum().item()
         else:
-            FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J.sum(axis=0))[1].sum().item()
+            FIMs[step // update_freq_control - 1] = jnp.linalg.slogdet(J)[1].sum().item()
 
         if ((step % args.frame_skip) == 0) and ((step % update_freq_control) == 0) and args.save_images:
             print(f"Step {step} - Saving Figure ")

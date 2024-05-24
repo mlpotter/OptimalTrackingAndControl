@@ -43,12 +43,24 @@ def SFIM_parallel(radar_state, target_state, C, J=None):
     # N, T,  dn = radar_state.shape[:-2],target_state.shape[-2:]
     # M, T, dm = target_state.shape[:-2],target_state.shape[-2:]
 
+
+    # radar_positions = radar_state[...,:3]
+    # target_positions = target_state[...,:3]
+
+    target_shape = target_state.shape
+    radar_shape = radar_state.shape
+
     radar_ndims = radar_state.ndim
     target_ndims = target_state.ndim
 
-    radar_positions = radar_state[..., :3]
+    horizon_shape =  (radar_shape[-2],) * (radar_ndims > 2)
 
-    target_positions = target_state[..., :3]
+    radar_state_ravel = jnp.reshape(radar_state, order="F", newshape=(-1,) + radar_state.shape[-(1+(radar_ndims>2)):])
+    target_state_ravel  = jnp.reshape(target_state, order="F", newshape=(-1,) + target_state.shape[-(1+(target_ndims>2)):])
+
+    radar_positions = radar_state_ravel[...,:3]
+    target_positions = target_state_ravel[...,:3]
+
     d = jnp.expand_dims(target_positions,0) - jnp.expand_dims(radar_positions,1)
 
     # d = (target_positions[jnp.newaxis, :, :] - radar_positions[:, jnp.newaxis, :])
@@ -61,17 +73,27 @@ def SFIM_parallel(radar_state, target_state, C, J=None):
 
     outer_product = (outer_vector[...,jnp.newaxis] @ outer_vector[...,jnp.newaxis,:])
 
-    return outer_product
+    radar_index = (radar_ndims-2 + (radar_ndims<=2))
+    target_index = (target_ndims-2 + (target_ndims<=2))
+    J = outer_product.reshape(radar_shape[:radar_index] + target_shape[:target_index] + horizon_shape + (3, 3), order="F").sum(axis=(radar_index-1))
+
+    return J
 
 @jit
 def SFIM_range(radar_state,target_state,sigmaR,J=None):
+    target_shape = target_state.shape
+    radar_shape = radar_state.shape
 
     radar_ndims = radar_state.ndim
     target_ndims = target_state.ndim
 
-    radar_positions = radar_state[...,:3]
+    horizon_shape =  (radar_shape[-2],) * (radar_ndims > 2)
 
-    target_positions = target_state[...,:3]
+    radar_state_ravel = jnp.reshape(radar_state, order="F", newshape=(-1,) + radar_state.shape[-(1+(radar_ndims>2)):])
+    target_state_ravel  = jnp.reshape(target_state, order="F", newshape=(-1,) + target_state.shape[-(1+(target_ndims>2)):])
+
+    radar_positions = radar_state_ravel[...,:3]
+    target_positions = target_state_ravel[...,:3]
 
     d = jnp.expand_dims(target_positions,0) - jnp.expand_dims(radar_positions,1)
 
@@ -83,16 +105,23 @@ def SFIM_range(radar_state,target_state,sigmaR,J=None):
 
     outer_product = (outer_vector[...,jnp.newaxis] @ outer_vector[...,jnp.newaxis,:])
 
+    radar_index = (radar_ndims-2 + (radar_ndims<=2))
+    target_index = (target_ndims-2 + (target_ndims<=2))
+    J = outer_product.reshape(radar_shape[:radar_index] + target_shape[:target_index] + horizon_shape + (3, 3), order="F").sum(axis=(radar_index-1))
+
     # J_standard = jax.scipy.linalg.block_diag(*[jax.scipy.linalg.block_diag(outer_product[m],jnp.zeros((dm-3,dm-3))) for m in range(M)])
-    return outer_product
+    return J#outer_product
 
 @jit
 def PFIM_range(radar_state,target_state,J,A,Q,sigmaR):
-    radar_state_ravel = jnp.reshape(radar_state, order="F", newshape=(-1,) + radar_state.shape[-1:])
-    target_state_ravel  = jnp.reshape(target_state, order="F", newshape=(-1,) + target_state.shape[-1:])
+    target_shape = target_state.shape
+    radar_shape = radar_state.shape
 
     radar_ndims = radar_state.ndim
     target_ndims = target_state.ndim
+
+    radar_state_ravel = jnp.reshape(radar_state, order="F", newshape=(-1,) + radar_state.shape[-1:])
+    target_state_ravel  = jnp.reshape(target_state, order="F", newshape=(-1,) + target_state.shape[-1:])
 
     radar_positions = radar_state_ravel[...,:3]
 
@@ -107,7 +136,8 @@ def PFIM_range(radar_state,target_state,J,A,Q,sigmaR):
 
     J_standard = (jnp.expand_dims(outer_vector, -1) @ jnp.expand_dims(outer_vector, -2))#.sum(axis=0)
 
-    J_standard = J_standard.reshape(radar_state.shape[:radar_state.ndim-1] + target_state.shape[:target_state.ndim-1] + (6, 6), order="F").sum(axis=radar_state.ndim-2)
+    #  M_target x dm x dm
+    J_standard = J_standard.reshape(radar_shape[:(radar_ndims-1)] + target_shape[:target_ndims-1] + (6, 6), order="F").sum(axis=-(target_ndims+2)).mean(axis=-(target_ndims+1))
 
     J = jnp.linalg.inv(Q+A@jnp.linalg.inv(J)@A.T) + J_standard
 
@@ -115,11 +145,15 @@ def PFIM_range(radar_state,target_state,J,A,Q,sigmaR):
 
 @jit
 def PFIM_parallel(radar_state,target_state,J,A,Q,C):
-    radar_state_ravel = jnp.reshape(radar_state, order="F", newshape=(-1,) + radar_state.shape[-1:])
-    target_state_ravel  = jnp.reshape(target_state, order="F", newshape=(-1,) + target_state.shape[-1:])
+    target_shape = target_state.shape
+    radar_shape = radar_state.shape
 
     radar_ndims = radar_state.ndim
     target_ndims = target_state.ndim
+
+    radar_state_ravel = jnp.reshape(radar_state, order="F", newshape=(-1,) + radar_state.shape[-1:])
+    target_state_ravel  = jnp.reshape(target_state, order="F", newshape=(-1,) + target_state.shape[-1:])
+
 
     radar_positions = radar_state_ravel[...,:3]
 
@@ -135,7 +169,8 @@ def PFIM_parallel(radar_state,target_state,J,A,Q,C):
 
     J_standard = (jnp.expand_dims(outer_vector, -1) @ jnp.expand_dims(outer_vector, -2))#.sum(axis=0)
 
-    J_standard = J_standard.reshape(radar_state.shape[:radar_state.ndim-1] + target_state.shape[:target_state.ndim-1] + (6, 6), order="F").sum(axis=radar_state.ndim-2)
+    #  M_target x dm x dm
+    J_standard = J_standard.reshape(radar_shape[:(radar_ndims-1)] + target_shape[:target_ndims-1] + (6, 6), order="F").sum(axis=-(target_ndims+2)).mean(axis=-(target_ndims+1))
 
     J = jnp.linalg.inv(Q+A@jnp.linalg.inv(J)@A.T) + J_standard
 
