@@ -13,11 +13,11 @@ os.makedirs("logs",exist_ok=True)
 blocking=True
 
 # =========================== Experiment Choice ================== #
-seed=np.arange(0,500,2)
+seed=np.arange(0,1000,2)
 frame_skip=[4]
 dt_ckf=[0.025]
 dt_control=[0.1]
-N_radar=[3]
+N_radar=[6]
 N_steps=[600]
 move_radars = ["move_radars","no-move_radars"]
 remove_tmp_images = ["remove_tmp_images"]
@@ -69,7 +69,7 @@ for fim_method in fim_methods:
             for n_radar in N_radar:
                 for n_traj in num_traj:
                     for mppi_iter in MPPI_iterations:
-                        experiment_name = os.path.join(f"Experiment11_{fim_method}",f"N_radar={n_radar}-{move_radar}")
+                        experiment_name = os.path.join(f"Experiment12_{fim_method}",f"N_radar={n_radar}-{move_radar}")
                         results_savepath = "results"
                         for n_steps in N_steps:
                             file = f"--{move_radar} " \
@@ -94,7 +94,9 @@ for fim_method in fim_methods:
 
 
                             if multi_device:
-                                deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.8, maxMemory = 0.15, includeNan=False, excludeID=[3], excludeUUID=[])
+                                sleep_time = 7 if  move_radar == "move_radars" else 1.5
+                                max_memory = 0.15 if move_radar != "move_radars" else 0.25
+                                deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.8, maxMemory = max_memory, includeNan=False, excludeID=[3], excludeUUID=[])
                                 print(deviceIDs)
                                 file_full = f"python main_expectation.py {file}"
                                 file_run = os.path.join(os.getcwd(),"execute_local.bash")
@@ -102,16 +104,16 @@ for fim_method in fim_methods:
                                     print(f"GPU Device {deviceIDs[0]}")
                                     print(f"tmux new-session -d {file_run} '{file_full}' '{deviceIDs[0]}'")
                                     Popen(f"tmux new-session -d bash {file_run} '{file_full}' '{deviceIDs[0]}'",shell=True) #, shell=True,creationflags=CREATE_NEW_CONSOLE)
-                                    time.sleep(7)
+                                    time.sleep(sleep_time)
                                 else:
                                     print("All GPUs USED AT THIS MOMENT, WAIT UNTIL NEW RESOURCE AVAILABLE")
                                     while len(deviceIDs) == 0:
-                                        deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.8, maxMemory = 0.15, includeNan=False, excludeID=[3], excludeUUID=[])
+                                        deviceIDs = GPUtil.getAvailable(order = 'first', limit = 4, maxLoad = 0.8, maxMemory = max_memory, includeNan=False, excludeID=[3], excludeUUID=[])
                                         time.sleep(5)
                                     print(f"GPU Device {deviceIDs[0]}")
                                     print(f"tmux new-session -d {file_run} '{file_full}' '{deviceIDs[0]}'")
                                     Popen(f"tmux new-session -d bash {file_run} '{file_full}' '{deviceIDs[0]}'",shell=True) #, shell=True,creationflags=CREATE_NEW_CONSOLE)
-                                    time.sleep(7)
+                                    time.sleep(sleep_time)
                             else:
                                 file_full = f"python main_expectation.py {file}"
                                 file_run = os.path.join(os.getcwd(),"execute_local.bash")

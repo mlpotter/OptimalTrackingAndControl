@@ -110,7 +110,7 @@ def main(args):
     # coef = Gt * Gr * lam ** 2 * rcs / L / (4 * jnp.pi)** 3 / (R ** 4)
     C = c**2 * sigmaW**2 / (jnp.pi**2 * 8 * args.fc**2) * 1/K
 
-    sigmaR = np.sqrt(C*((2*args.R2T)**4))#0.05
+    sigmaR = np.sqrt(C*(args.R2T**4))#0.05
 
     print("Noise Power: ",sigmaW**2)
     print("Power Return (RCS): ",Pr)
