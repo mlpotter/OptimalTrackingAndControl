@@ -551,7 +551,7 @@ if __name__ == "__main__":
     parser.add_argument('--experiment_name', default="experiment",type=str, help='Name of folder to save temporary images to make GIFs')
     parser.add_argument('--move_radars', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to allow the radars to move? --move_radars for yes --no-move_radars for no')
     parser.add_argument('--remove_tmp_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to remove tmp images? --remove_tmp_images for yes --no-remove_tmp_images for no')
-    parser.add_argument('--tail_length',default=10,type=int,help="The length of the tail of the radar trajectories in plottings")
+    parser.add_argument('--tail_length',default=25,type=int,help="The length of the tail of the radar trajectories in plottings")
     parser.add_argument('--save_images', action=argparse.BooleanOptionalAction,default=True,help='Do you wish to saves images/gifs? --save_images for yes --no-save_images for no')
     parser.add_argument('--fim_method', default="SFIM",type=str, help='FIM Calculation [SFIM,PFIM,SFIM_bad,PFIM_bad]')
 
