@@ -11,6 +11,8 @@ from jax import vmap
 
 from control.Sensor_Dynamics import unicycle_kinematics_single_integrator,unicycle_kinematics_double_integrator,UNI_SI_U_LIM,UNI_SI_U_LIM,UNI_DI_U_LIM
 
+from sklearn.covariance import OAS,ledoit_wolf,oas
+
 from jaxopt import ScipyBoundedMinimize
 import matplotlib.pyplot as plt
 
@@ -190,6 +192,111 @@ def MPPI_scores_wrapper(score_fn,method="single"):
 
     return MPPI_scores
 
+def MPPI_control(
+                radar_state,U,cov,key, # radar state
+                 A,J,control_constraints, # objective parameters
+                 kinematic_model,ckf, # kinematic model and cubature kalman filter
+                 MPPI_kinematics,MPPI_scores,weight_fn, # MPPI need parameters
+                 collision_penalty,self_collision_penalty_vmap, # extra penalty functions
+                 args # misc things
+                 ):
+
+    # number of radars x horizon x 2
+    U_prime = deepcopy(U)
+    cov_prime = deepcopy(cov)
+
+    # the cubature kalman filter points propogated over horizon. Horizon x # Sigma Points x (Number of targets * dim of target)
+    target_states_ckf = ckf.predict_propogate(ckf.x, ckf.P, args.horizon, dt=args.dt_control, fx_args=(args.M_target,))
+    # target_states_ckf = np.swapaxes(target_states_ckf.mean(axis=1).reshape(args.horizon, M_target, dm), 1, 0)
+
+
+    # # Sigma Points x Number of targets x horizon x dm
+    target_states_ckf = np.moveaxis(target_states_ckf.reshape(args.horizon, args.dm * args.M_target * 2, args.M_target, args.dm), source=0,
+                                    destination=-2)
+
+    for mppi_iter in range(args.MPPI_iterations):
+        key, subkey = jax.random.split(key)
+
+        try:
+            E = jax.random.multivariate_normal(key, mean=jnp.zeros_like(U).ravel(), cov=cov_prime,
+                                               shape=(args.num_traj,))  # ,method="svd")
+        except:
+            E = jax.random.multivariate_normal(key, mean=jnp.zeros_like(U).ravel(), cov=cov_prime,
+                                               shape=(args.num_traj,), method="svd")
+
+        # simulate the model with the trajectory noise samples
+        # number of traj x number of radars x horizon x 2
+        V = U_prime + E.reshape(args.num_traj, args.N_radar, args.horizon, 2)
+        # mppi_sample_end = time()
+
+        # number of radars x horizon+1 x dn
+        # number of traj x number of radars x horizon+1 x dn
+        radar_states, radar_states_MPPI = MPPI_kinematics(U_nominal=U_prime,
+                                               U_MPPI=V, radar_state=radar_state)
+
+        # GET MPC OBJECTIVE
+        # mppi_score_start = time()
+        # Score all the rollouts
+        cost_trajectory = MPPI_scores(V, radar_state, target_states_ckf,
+                                      J, A)
+
+        cost_collision_r2t = collision_penalty(radar_states_MPPI[..., 1:args.horizon + 1, :], target_states_ckf,
+                                               args.R2T)
+
+        cost_collision_r2t = jnp.sum((cost_collision_r2t * args.gamma ** (jnp.arange(args.horizon))) / jnp.sum(
+            args.gamma ** jnp.arange(args.horizon)), axis=-1)
+
+        cost_collision_r2r = self_collision_penalty_vmap(radar_states_MPPI[..., 1:args.horizon + 1, :], args.R2R)
+        cost_collision_r2r = jnp.sum((cost_collision_r2r * args.gamma ** (jnp.arange(args.horizon))) / jnp.sum(
+            args.gamma ** jnp.arange(args.horizon)), axis=-1)
+
+        cost_MPPI = args.alpha1 * cost_trajectory + args.alpha2 * cost_collision_r2t + args.alpha3 * cost_collision_r2r * args.temperature
+
+        weights = weight_fn(cost_MPPI)
+
+        if jnp.isnan(cost_MPPI).any():
+            print("BREAK!")
+            break
+
+        if (mppi_iter < (args.MPPI_iterations - 1)):  # and (jnp.sum(cost_MPPI*weights) < best_cost):
+
+            # number of radars x horizon x 2
+            U_prime = U_prime + jnp.sum(
+                weights.reshape(args.num_traj, 1, 1, 1) * E.reshape(args.num_traj, args.N_radar, args.horizon, 2),
+                axis=0)
+
+            # this is only working right now for entropy based weighting
+            lw_cov, shrinkage = ledoit_wolf(X=E[weights != 0], assume_centered=True)
+
+            cov_prime = jnp.array(lw_cov)
+            if mppi_iter == 0:
+                # print("Oracle Approx Shrinkage: ",np.round(shrinkage,5))
+                pass
+
+    if jnp.isnan(cost_MPPI).any():
+        raise ValueError("Cost is NaN")
+
+    weights = weight_fn(cost_MPPI)
+
+    mean_shift = (U_prime - U)
+
+    E_prime = E + mean_shift.ravel()
+
+    U += jnp.sum(weights.reshape(-1, 1, 1, 1) * E_prime.reshape(args.num_traj, args.N_radar, args.horizon, 2), axis=0)
+
+    U = jnp.stack((jnp.clip(U[:, :, 0], control_constraints[0, 0], control_constraints[1, 0]),
+                   jnp.clip(U[:, :, 1], control_constraints[0, 1], control_constraints[1, 1])), axis=-1)
+
+
+    # generate radar states at measurement frequency
+    # number of radar x steps of update freq control x dn
+    radar_states = kinematic_model(np.repeat(U, args.update_freq_control, axis=1)[:, :args.update_freq_control, :],
+                                   radar_state, args.dt_ckf)
+
+
+    U = jnp.roll(U, -1, axis=1)
+
+    return U,(radar_states,radar_states_MPPI),(cost_MPPI,cost_trajectory,cost_collision_r2t,cost_collision_r2r),key
 
 
 def MPPI_visualize(MPPI_trajectories,nominal_trajectory):
