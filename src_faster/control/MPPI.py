@@ -250,7 +250,7 @@ def MPPI_control(
         cost_collision_r2r = jnp.sum((cost_collision_r2r * args.gamma ** (jnp.arange(args.horizon))) / jnp.sum(
             args.gamma ** jnp.arange(args.horizon)), axis=-1)
 
-        cost_MPPI = args.alpha1 * cost_trajectory + args.alpha2 * cost_collision_r2t + args.alpha3 * cost_collision_r2r * args.temperature
+        cost_MPPI = (args.alpha1 * cost_trajectory + args.alpha2 * cost_collision_r2t + args.alpha3 * cost_collision_r2r)
 
         weights = weight_fn(cost_MPPI)
 

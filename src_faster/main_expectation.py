@@ -489,6 +489,7 @@ if __name__ == "__main__":
     from jax.lib import xla_bridge
 
     tz = timezone('EST')
+    print("Results saved @ ",args.results_savepath)
     print("Experiment State @ ",datetime.now(tz))
     print("Experiment Saved @ ",args.results_savepath)
     print("Experiment Settings Saved @ ",args.results_savepath)
