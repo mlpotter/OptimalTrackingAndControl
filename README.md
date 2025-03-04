@@ -189,7 +189,16 @@ Shuo Tang -  <br />
 
 # Citing This Paper
 Please cite the following paper if you intend to use this code or dataset for your research.
-> TBD soon
+> @article{potter2025continuously,
+  title={Continuously Optimizing Radar Placement with Model Predictive Path Integrals},
+  author={Potter, Michael and Tang, Shuo and Ghanem, Paul and Stojanovic, Milica and Closas, Pau and Akcakaya, Murat and Wright, Ben and Necsoiu, Marius and Erdo{\u{g}}mu{\c{s}}, Deniz and Everett, Michael and others},
+  journal={IEEE Transactions on Aerospace and Electronic Systems},
+  year={2025},
+  publisher={IEEE}
+}
+
+# Note
+The timing benchmark of 26-27 Hz was reported on an old version of this code which had functions inline with the main script, leading to significant speeds ups. For readability, code was moved into functions at the cost of speed (this is research after all).
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
