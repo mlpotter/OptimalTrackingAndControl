@@ -25,7 +25,7 @@
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-  <a href="https://github.com/othneildrew/Best-README-Template">
+  <a href="https://github.com/mlpotter/OptimalTrackingAndControl">
     <img src="images_readme/csl_logo.png" alt="Logo" width="150" height="80">
   </a>
 
@@ -198,20 +198,20 @@ Please cite the following paper if you intend to use this code or dataset for yo
 }
 
 # Note
-The timing benchmark of 26-27 Hz was reported on an old version of this code which had functions inline with the main script, leading to significant speeds ups. For readability, code was moved into functions at the cost of speed (this is research after all).
+The timing benchmark of 26-27 Hz was reported on an old version of this code which had functions inline with the main script and more accurate placement of the timing blocks, leading to better timing of the MPPI controller. For better readability, code related to the Cubuture Kalman Filter prediction rollout and actuation of the MPPI final control on the radar states is included in the `MPPI_control` function which leads to slower timing results.
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[contributors-shield]: https://img.shields.io/github/contributors/othneildrew/Best-README-Template.svg?style=for-the-badge
+[contributors-shield]: https://img.shields.io/github/contributors/mlpotter/OptimalTrackingAndControl.svg?style=for-the-badge
 [contributors-url]: https://github.com/mlpotter/OptimalTrackingAndControl/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/othneildrew/Best-README-Template.svg?style=for-the-badge
+[forks-shield]: https://img.shields.io/github/forks/mlpotter/OptimalTrackingAndControl.svg?style=for-the-badge
 [forks-url]: https://github.com/mlpotter/OptimalTrackingAndControl/network/members
-[stars-shield]: https://img.shields.io/github/stars/othneildrew/Best-README-Template.svg?style=for-the-badge
+[stars-shield]: https://img.shields.io/github/stars/mlpotter/OptimalTrackingAndControl.svg?style=for-the-badge
 [stars-url]: https://github.com/mlpotter/OptimalTrackingAndControl/stargazers
-[issues-shield]: https://img.shields.io/github/issues/othneildrew/Best-README-Template.svg?style=for-the-badge
+[issues-shield]: https://img.shields.io/github/issues/mlpotter/OptimalTrackingAndControl.svg?style=for-the-badge
 [issues-url]: https://github.com/mlpotter/OptimalTrackingAndControl/issues
-[license-shield]: https://img.shields.io/github/license/othneildrew/Best-README-Template.svg?style=for-the-badge
-[license-url]: https://github.com/othneildrew/Best-README-Template/blob/master/LICENSE.txt
+[license-shield]: https://img.shields.io/github/license/mlpotter/OptimalTrackingAndControl.svg?style=for-the-badge
+[license-url]: https://github.com/mlpotter/OptimalTrackingAndControl/blob/master/LICENSE.txt
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
 [linkedin-url]: https://linkedin.com/in/othneildrew
 [product-screenshot]: images/screenshot.png
