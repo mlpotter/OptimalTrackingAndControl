@@ -26,7 +26,7 @@ remove_tmp_images = ["remove_tmp_images"]
 save_images = ["no-save_images"]
 
 # ==================== RADAR CONFIGURATION ======================== #
-fc=[1e8]
+fc=[10e9]
 Gt=[200]
 Gr=[200]
 rcs=[1]
@@ -61,13 +61,13 @@ alpha3=[60]
 alpha4=[1]
 alpha5=[0]
 
-fim_methods = ['SFIM_bad','SFIM','PFIM']
+fim_methods = ['SFIM_bad','SFIM','PFIM','PFIM_bad']
 
 for move_radar in move_radars:
     for seed_i in seed:
         for fim_method in fim_methods:
             for n_radar in N_radar:
-                experiment_name = os.path.join(f"Experiment2_{fim_method}",f"N_radar={n_radar}-{move_radar}")
+                experiment_name = os.path.join(f"Experiment_{fim_method}",f"N_radar={n_radar}-{move_radar}")
                 results_savepath = "results"
                 for n_steps in N_steps:
                     file = f"--{move_radar} " \
