@@ -87,9 +87,9 @@ for move_radar in move_radars:
                         continue
 
                     if blocking:
-                        os.system(f"python main.py {file}")
+                        os.system(f"python main_expectation.py {file}")
                     else:
-                        file_full = f"python main.py {file}"
+                        file_full = f"python main_expectation.py {file}"
                         print(f"sbatch execute.bash '{file_full}'")
                         Popen(f"sbatch execute.bash '{file_full}'", shell=True)
 
